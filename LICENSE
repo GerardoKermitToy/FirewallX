@@ -1,0 +1,520 @@
+FIREWALLX ATTRIBUTION LICENSE
+Version 1.0
+
+ENGLISH VERSION
+
+Copyright (c) 2026 skrudjmdk.
+Author: skrudjmdk
+Project repository: https://github.com/GerardoKermitToy/FirewallX
+
+1. SUBJECT MATTER AND DEFINITIONS
+
+For the purposes of this License, "Software" means the FirewallX source code,
+binaries, and accompanying materials to which the applicable copyright holders
+are entitled to grant the permissions set out herein. All files in the project's
+flags/ directory, including copies embedded in binaries or other files, are
+excluded from this License; no rights in those files are claimed.
+
+"Derived Product" means any project, application, service, library, or other
+product that incorporates, modifies, adapts, or redistributes the Software, in
+whole or in part. "You" means any individual or legal entity exercising the
+permissions granted herein.
+
+This License applies only to rights that the applicable copyright holders are
+entitled to license. Separately licensed third-party materials are governed by
+Section 5.
+
+1A. BORROWING, CERTIFICATE-BASED AUTHORSHIP, AND YOUR DEVELOPMENTS
+
+"Borrowing" means Your use, copying, modification, adaptation, combination,
+incorporation, or redistribution of any portion of the Software in or for a
+project, application, service, or other product of Your own, including a
+modified version of the Software. Merely executing the unmodified Software as
+an end user does not constitute Borrowing.
+
+"FirewallX Author" means every natural person or legal entity that demonstrates
+possession or control of the private key corresponding to the public key in the
+certificate contained in the Appendix. Such proof may consist, for example, of
+a signature on a fresh challenge identifying the claimant, verifiable using the
+certificate's public key; disclosure of the private key itself is not required.
+You shall recognize every such claimant as an author of FirewallX for the
+purposes of this License, regardless of whether other claimants also qualify.
+
+"Your Developments" means software, source and object code, modifications,
+inventions, designs, data, documentation, know-how, and other results of
+technical or creative activity that You own or are entitled to license and that
+form part of a project, application, service, library, or other product that
+incorporates or otherwise uses any portion of the FirewallX code, whether
+modified or unmodified, in source or binary form. Your Developments may have
+existed at the time of Borrowing or been created or acquired subsequently, and
+include confidential, proprietary, closed-source, and commercial materials.
+Developments that do not form part of any such project or product are excluded.
+
+2. GRANT OF PERMISSION
+
+Subject to compliance with this License, You are hereby granted a worldwide,
+non-exclusive, perpetual, royalty-free permission to use, execute, reproduce,
+modify, adapt, combine, incorporate, publish, distribute, sublicense, and sell
+the Software and Derived Products, in source or binary form, for any lawful
+purpose, including personal, educational, non-commercial, and commercial use.
+
+The Software may be used in proprietary and closed-source projects. No prior
+request, notification, individual authorization, written consent, registration,
+license fee, royalty, revenue share, or other mandatory payment to the author
+or copyright holders is required under this License.
+
+This License does not require publication or disclosure of the source code of
+Your modifications or Derived Products. You may apply Your own license terms
+to Your original contributions and distribute Derived Products under commercial
+or proprietary terms, provided that such terms do not remove or restrict the
+obligations applicable to the incorporated Software under this License or the
+rights granted under Section 2A. The foregoing permissions remain subject to
+Section 5.
+
+2A. GRANT OF RIGHTS IN YOUR DEVELOPMENTS
+
+By Borrowing, and as a condition of the permissions granted by this License,
+You hereby grant each FirewallX Author a worldwide, non-exclusive, perpetual,
+irrevocable and royalty-free license, transferable and
+sublicensable through multiple tiers, to use, execute, reproduce, modify, adapt,
+translate, combine, create derivative works of, disclose, publish, distribute,
+make available, display, commercialize, sell, import, and otherwise exploit
+Your Developments in any form, medium, manner, or field of use, including for
+private, proprietary, closed-source, and commercial purposes. The grant covers
+the copyright, patent, database, trade-secret, and other rights in Your
+Developments that You own or are entitled to license, to the extent necessary
+to exercise the foregoing rights. To the extent permitted by applicable law,
+the grant attaches automatically to rights in Your Developments that You
+subsequently acquire or become entitled to license, and to developments You
+already own or are entitled to license that subsequently become part of such a
+project or product. In either case, the grant applies only if those developments
+form part of a project or product that uses FirewallX code as described in
+Section 1A.
+
+No further permission, agreement, notice, payment, accounting, attribution,
+identification of contributors, source-code disclosure, or other action by a
+FirewallX Author is required to exercise or sublicense these rights. To the
+maximum extent permitted by applicable law and by the rights under Your control,
+no express or implied license condition, confidentiality obligation, notice,
+proprietary designation, or other restriction imposed or controlled by You
+shall limit their exercise, even if Your Developments are otherwise offered or
+held under restrictive terms. You consent, to the same extent, to their use and
+disclosure without identifying You or any other contributor.
+
+This grant does not itself require You to deliver or disclose Your Developments
+or their source code. It does not grant rights belonging to third parties that
+You are not entitled to license, override Section 5, or waive rights that cannot
+lawfully be waived.
+
+3. MANDATORY GRAPHICAL ATTRIBUTION
+
+Every Derived Product shall display an attribution identifying the original
+author as "skrudjmdk" and the project repository as
+"https://github.com/GerardoKermitToy/FirewallX" in its graphical user interface.
+This requirement applies equally to modified, renamed, commercial, closed-source,
+publicly distributed, hosted, and internally used Derived Products.
+
+The attribution shall be legible and readily accessible through the product's
+ordinary graphical navigation, for example in an "About", "Credits", or "Legal
+information" screen. Continuous display in the main window is not required.
+The attribution shall remain available in each version containing the Software.
+
+The following wording, or a substantially equivalent notice containing the same
+author name and complete repository address, shall satisfy this requirement:
+
+    This product uses code from FirewallX.
+    Original author: skrudjmdk.
+    Repository: https://github.com/GerardoKermitToy/FirewallX
+
+In addition to the notice above, upon receipt of the proof described in
+Section 1A and a name or pseudonym designated by the claimant, You shall
+promptly identify that claimant as an author of FirewallX in the graphical
+attribution of each Derived Product under Your control and in all subsequent
+versions that You distribute, host, or use. This obligation applies separately
+to every qualifying claimant.
+
+The notice may be translated, provided that "FirewallX", "skrudjmdk", and the
+complete repository address remain unchanged. The repository address shall be
+shown in full and, where the interface supports hyperlinks, shall be clickable.
+A notice solely in source comments, a LICENSE file, accompanying documentation,
+command-line output, or an external website shall not substitute for the
+required graphical attribution.
+
+Where the Software is incorporated into a non-graphical component, the notice
+shall appear in the graphical interface of the product incorporating that
+component. A separately supplied product with no graphical interface shall
+include a readily accessible graphical attribution page, such as a bundled
+HTML page, displaying the same notice. The absence of a graphical interface
+does not waive the attribution obligation.
+
+4. PRESERVATION OF NOTICES AND DOWNSTREAM COMPLIANCE
+
+Copies and redistributions of the Software, or substantial portions thereof,
+shall retain the applicable copyright notices and a complete copy of this
+License, including both language versions and the Appendix. For binary
+distributions, these materials may be supplied in an accompanying license file
+or in an accessible legal-information section of the product.
+
+You shall not remove, conceal, or misrepresent the required attribution or
+represent the original Software as exclusively Your own work. Anyone to whom
+You redistribute or sublicense the Software shall receive it subject to these
+same notice and attribution obligations. Compliance with this section does not
+replace the graphical attribution required by Section 3.
+
+5. THIRD-PARTY RIGHTS AND ABSENCE OF ENDORSEMENT
+
+Third-party code, libraries, drivers, and other materials, including separately
+supplied Portmaster and FirewallXNdisFilter drivers, remain subject to their
+respective licenses. This License does not authorize their relicensing, removal
+of their notices, or noncompliance with their terms. Permission to keep source
+code private does not override a disclosure obligation imposed by another
+applicable license.
+
+Except for identification and attribution expressly required herein, no right
+to use an author's or copyright holder's trademarks, logos, or names for
+advertising or to imply approval, certification, affiliation, or endorsement
+is granted. Attribution does not constitute endorsement of a Derived Product.
+
+6. DISCLAIMER OF WARRANTIES AND SUPPORT OBLIGATIONS
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED
+"AS IS" AND "AS AVAILABLE", WITHOUT ANY REPRESENTATION, UNDERTAKING, OR WARRANTY,
+WHETHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, ACCURACY, SECURITY,
+COMPATIBILITY, AVAILABILITY, OR UNINTERRUPTED OR ERROR-FREE OPERATION.
+
+Neither the author, the copyright holders, nor the contributors undertake any
+obligation to provide maintenance, technical support, updates, defect correction,
+security fixes, certification, or adaptation to any hardware, operating system,
+or legal requirement. No guarantee is given that the Software will prevent
+unauthorized access, information disclosure, malicious activity, or any other
+security incident, or that it will allow or block traffic as expected.
+
+You assume responsibility for evaluating, testing, deploying, configuring,
+operating, and maintaining the Software and Derived Products, including the
+assessment of their suitability, legal compliance, and effects on system
+security and network availability.
+
+7. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE AUTHOR, COPYRIGHT HOLDERS,
+AND CONTRIBUTORS SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, PUNITIVE, OR CONSEQUENTIAL LOSS OR DAMAGE, INCLUDING LOSS
+OF PROFITS, REVENUE, DATA, CONFIDENTIALITY, GOODWILL, OR BUSINESS OPPORTUNITY;
+NETWORK BLOCKAGE OR INTERRUPTION; SYSTEM OR DRIVER FAILURE; SECURITY INCIDENTS;
+OR THE COST OF RECOVERY OR SUBSTITUTE GOODS OR SERVICES, ARISING OUT OF OR IN
+CONNECTION WITH THE SOFTWARE, DERIVED PRODUCTS, OR THEIR USE OR INABILITY TO
+BE USED.
+
+This limitation applies regardless of the asserted legal basis, including
+contract, tort, negligence, strict liability, or otherwise, even if the relevant
+party has been advised of the possibility of such loss or damage. Nothing in
+this License excludes or limits liability or rights that cannot lawfully be
+excluded or limited under applicable law.
+
+8. COMPLIANCE, SEVERABILITY, AND LANGUAGE
+
+The permissions granted herein are conditional upon compliance with this
+License. No permission is granted herein for use, distribution, or sublicensing
+that disregards its conditions. This License does not revoke rights validly
+obtained under another license or restrict rights that cannot be restricted
+by agreement.
+
+If any provision is held unenforceable, the remaining provisions shall continue
+to apply to the extent permitted by applicable law.
+
+The English version is followed by a Russian translation intended to express
+the same terms. In the event of a discrepancy, the English version shall prevail.
+
+
+ЛИЦЕНЗИЯ FIREWALLX С ОБЯЗАТЕЛЬНОЙ АТРИБУЦИЕЙ
+Версия 1.0
+
+РУССКАЯ ВЕРСИЯ
+
+Авторские права (c) 2026 skrudjmdk.
+Автор: skrudjmdk
+Репозиторий проекта: https://github.com/GerardoKermitToy/FirewallX
+
+1. ПРЕДМЕТ ЛИЦЕНЗИИ И ОПРЕДЕЛЕНИЯ
+
+Для целей настоящей Лицензии «Программное обеспечение» означает исходный код,
+исполняемые файлы и сопроводительные материалы FirewallX, в отношении которых
+соответствующие правообладатели вправе предоставлять предусмотренные настоящей
+Лицензией разрешения. Все файлы каталога проекта flags/, включая их копии,
+встроенные в исполняемые и иные файлы, исключаются из действия настоящей
+Лицензии; права на эти файлы не заявляются.
+
+«Производный продукт» означает любой проект, приложение, службу, библиотеку
+или иной продукт, который включает, изменяет, адаптирует либо распространяет
+Программное обеспечение полностью или частично. «Вы» означает физическое или
+юридическое лицо, осуществляющее предоставленные настоящей Лицензией права.
+
+Настоящая Лицензия распространяется исключительно на права, которыми
+соответствующие правообладатели вправе распоряжаться. Материалы третьих лиц,
+предоставляемые по отдельным лицензиям, регулируются разделом 5.
+
+1А. ЗАИМСТВОВАНИЕ, АВТОРСТВО НА ОСНОВАНИИ СЕРТИФИКАТА И ВАШИ НАРАБОТКИ
+
+«Заимствование» означает использование, копирование, изменение, адаптацию,
+объединение, включение либо распространение Вами любой части Программного
+обеспечения в составе или для целей принадлежащего Вам проекта, приложения,
+сервиса либо иного продукта, включая изменённую версию Программного обеспечения.
+Сам по себе запуск неизменённого Программного обеспечения конечным пользователем
+Заимствованием не является.
+
+«Автор FirewallX» означает каждое физическое или юридическое лицо, которое
+докажет владение или контроль над закрытым ключом, соответствующим открытому
+ключу сертификата, приведённого в Приложении. Таким доказательством может,
+например, служить подпись нового проверочного сообщения, содержащего указание
+на заявителя и проверяемого с использованием открытого ключа сертификата;
+раскрытие самого закрытого ключа не требуется. Для целей настоящей Лицензии
+Вы обязаны признавать каждого такого заявителя автором FirewallX независимо
+от того, соответствуют ли указанному условию также другие заявители.
+
+«Ваши наработки» означают программное обеспечение, исходный и объектный код,
+изменения, изобретения, разработки, данные, документацию, ноу-хау и иные
+результаты технической или творческой деятельности, которыми Вы владеете либо
+которые Вы вправе лицензировать и которые входят в состав проекта, приложения,
+сервиса, библиотеки или иного продукта, включающего или иным образом
+использующего любую часть кода FirewallX, изменённую или неизменённую, в форме
+исходного кода либо исполняемых файлов. Ваши наработки могут существовать на
+момент Заимствования либо быть созданы или приобретены впоследствии и включают
+конфиденциальные, проприетарные и коммерческие материалы, в том числе материалы
+с закрытым исходным кодом. Наработки, не входящие в состав какого-либо такого
+проекта или продукта, исключаются.
+
+2. ПРЕДОСТАВЛЕНИЕ РАЗРЕШЕНИЯ
+
+При условии соблюдения настоящей Лицензии Вам настоящим предоставляется
+действующее во всём мире неисключительное, бессрочное и безвозмездное разрешение
+использовать, запускать, воспроизводить, изменять, адаптировать, объединять,
+включать в другие продукты, публиковать, распространять, сублицензировать
+и продавать Программное обеспечение и Производные продукты в форме исходного
+кода либо исполняемых файлов для любых законных целей, включая личное, учебное,
+некоммерческое и коммерческое использование.
+
+Допускается использование Программного обеспечения в проприетарных проектах
+и проектах с закрытым исходным кодом. Настоящая Лицензия не требует
+предварительного обращения, уведомления, отдельного разрешения, письменного
+согласия, регистрации, лицензионного платежа, роялти, отчисления от дохода
+либо иного обязательного платежа автору или правообладателям.
+
+Настоящая Лицензия не устанавливает обязанности публиковать либо раскрывать
+исходный код Ваших изменений или Производных продуктов. Вы вправе устанавливать
+собственные лицензионные условия для созданных Вами самостоятельных частей
+и распространять Производные продукты на коммерческих или проприетарных
+условиях, если такие условия не отменяют и не ограничивают обязанности,
+применимые к включённому Программному обеспечению по настоящей Лицензии,
+либо права, предоставленные в соответствии с разделом 2А. Указанные разрешения
+предоставляются с учётом раздела 5.
+
+2А. ПРЕДОСТАВЛЕНИЕ ПРАВ НА ВАШИ НАРАБОТКИ
+
+Совершая Заимствование и в качестве условия предоставления разрешений по
+настоящей Лицензии, Вы настоящим предоставляете каждому Автору FirewallX
+действующую во всём мире, неисключительную, бессрочную, безотзывную
+и безвозмездную лицензию с правом передачи и
+многоуровневого сублицензирования на использование, запуск, воспроизведение,
+изменение, адаптацию, перевод, объединение, создание производных произведений,
+раскрытие, опубликование, распространение, доведение до всеобщего сведения,
+показ, коммерциализацию, продажу, импорт и иное использование Ваших наработок
+в любой форме, на любом носителе, любым способом и в любой сфере деятельности,
+в том числе в частных, проприетарных и коммерческих целях и в проектах
+с закрытым исходным кодом. Предоставление охватывает авторские, патентные
+и иные права, включая права на базы данных и коммерческую тайну, на Ваши
+наработки, которыми Вы владеете либо которые вправе лицензировать, в объёме,
+необходимом для осуществления указанных правомочий. В пределах, допускаемых
+применимым законодательством, предоставление автоматически распространяется
+на права на Ваши наработки, которые Вы приобретёте либо получите право
+лицензировать впоследствии, а также на уже принадлежащие Вам либо доступные
+Вам для лицензирования наработки, которые впоследствии войдут в состав такого
+проекта или продукта. В обоих случаях предоставление применяется только при
+условии, что соответствующие наработки входят в состав проекта или продукта,
+в котором используется код FirewallX, как предусмотрено разделом 1А.
+
+Для осуществления или сублицензирования указанных прав Автору FirewallX
+не требуются дополнительное разрешение, соглашение, уведомление, платёж,
+отчётность, указание авторства или участников разработки, раскрытие исходного
+кода либо совершение иных действий. В максимально допустимых применимым
+законодательством пределах и в пределах находящихся под Вашим контролем прав
+их осуществление не ограничивается прямо выраженными или подразумеваемыми
+лицензионными условиями, обязательствами о конфиденциальности, уведомлениями,
+обозначениями проприетарного характера либо иными ограничениями, установленными
+Вами или находящимися под Вашим контролем, даже если в остальном Ваши наработки
+предоставляются или сохраняются на ограничительных условиях. В тех же пределах
+Вы соглашаетесь на их использование и раскрытие без указания Вас либо иного
+участника разработки.
+
+Само по себе указанное предоставление не обязывает Вас передавать или раскрывать
+Ваши наработки либо их исходный код. Оно не предоставляет права третьих лиц,
+которые Вы не вправе лицензировать, не отменяет действие раздела 5 и не влечёт
+отказа от прав, отказ от которых не допускается законом.
+
+3. ОБЯЗАТЕЛЬНАЯ АТРИБУЦИЯ В ГРАФИЧЕСКОМ ИНТЕРФЕЙСЕ
+
+В графическом интерфейсе каждого Производного продукта должно размещаться
+уведомление с указанием первоначального автора «skrudjmdk» и репозитория
+проекта «https://github.com/GerardoKermitToy/FirewallX». Данное требование
+в равной мере применяется к изменённым, переименованным, коммерческим,
+закрытым, публично распространяемым, предоставляемым в виде размещённого
+сервиса и используемым внутри организации Производным продуктам.
+
+Уведомление должно быть разборчивым и доступным посредством обычной графической
+навигации продукта, например в разделе «О программе», «Авторы» или «Правовая
+информация». Постоянное отображение в главном окне не требуется. Уведомление
+должно сохранять доступность в каждой версии, содержащей Программное обеспечение.
+
+Надлежащим исполнением данного требования признаётся размещение следующего
+текста либо равнозначного уведомления, содержащего то же имя автора и полный
+адрес репозитория:
+
+    В этом продукте используется код FirewallX.
+    Первоначальный автор: skrudjmdk.
+    Репозиторий: https://github.com/GerardoKermitToy/FirewallX
+
+В дополнение к указанному уведомлению после получения доказательства,
+предусмотренного разделом 1А, и выбранного заявителем имени или псевдонима
+Вы обязаны без неоправданной задержки указать такого заявителя в качестве
+автора FirewallX в графической атрибуции каждого находящегося под Вашим
+контролем Производного продукта, а также всех последующих версий, которые Вы
+распространяете, размещаете или используете. Данная обязанность применяется
+отдельно к каждому заявителю, соответствующему указанному условию.
+
+Допускается перевод уведомления при условии сохранения без изменений
+наименования «FirewallX», имени «skrudjmdk» и полного адреса репозитория.
+Адрес репозитория должен отображаться полностью, а при поддержке интерфейсом
+гиперссылок — обеспечивать переход по указанному адресу. Размещение уведомления
+исключительно в комментариях исходного кода, файле LICENSE, сопроводительной
+документации, выводе командной строки либо на внешнем веб-сайте не заменяет
+обязательную атрибуцию в графическом интерфейсе.
+
+При включении Программного обеспечения в компонент без графического интерфейса
+уведомление размещается в графическом интерфейсе продукта, включающего такой
+компонент. Отдельно предоставляемый продукт без графического интерфейса должен
+содержать доступную графическую страницу атрибуции, например поставляемую
+вместе с продуктом HTML-страницу, с тем же уведомлением. Отсутствие графического
+интерфейса не освобождает от обязанности указания авторства.
+
+4. СОХРАНЕНИЕ УВЕДОМЛЕНИЙ И ПЕРЕДАЧА ОБЯЗАННОСТЕЙ
+
+При копировании и распространении Программного обеспечения либо его
+существенных частей должны сохраняться применимые уведомления об авторских
+правах и полный текст настоящей Лицензии, включая обе языковые версии
+и Приложение. При распространении исполняемых файлов указанные материалы могут
+включаться в сопроводительный лицензионный файл либо в доступный раздел
+правовой информации продукта.
+
+Не допускаются удаление, сокрытие или искажение обязательной атрибуции,
+а также представление первоначального Программного обеспечения в качестве
+результата исключительно Вашего авторства. Лица, которым Вы распространяете
+или сублицензируете Программное обеспечение, получают его с теми же
+обязанностями по сохранению уведомлений и атрибуции. Исполнение настоящего
+раздела не заменяет графическую атрибуцию, предусмотренную разделом 3.
+
+5. ПРАВА ТРЕТЬИХ ЛИЦ И ОТСУТСТВИЕ ОДОБРЕНИЯ
+
+Код, библиотеки, драйверы и иные материалы третьих лиц, включая отдельно
+поставляемые драйверы Portmaster и FirewallXNdisFilter, сохраняют собственные
+лицензионные условия. Настоящая Лицензия не разрешает изменение их лицензий,
+удаление установленных ими уведомлений либо несоблюдение их требований.
+Разрешение сохранять исходный код закрытым не отменяет обязанности его
+раскрытия, установленной иной применимой лицензией.
+
+За исключением прямо предусмотренного настоящей Лицензией указания
+происхождения и авторства, не предоставляются права использования товарных
+знаков, логотипов либо имён автора или правообладателей в рекламе или для
+создания впечатления одобрения, сертификации, аффилированности либо поддержки.
+Указание авторства не означает одобрения Производного продукта.
+
+6. ОТКАЗ ОТ ГАРАНТИЙ И ОБЯЗАТЕЛЬСТВ ПО СОПРОВОЖДЕНИЮ
+
+В МАКСИМАЛЬНО ДОПУСТИМЫХ ПРИМЕНИМЫМ ЗАКОНОДАТЕЛЬСТВОМ ПРЕДЕЛАХ ПРОГРАММНОЕ
+ОБЕСПЕЧЕНИЕ ПРЕДОСТАВЛЯЕТСЯ «КАК ЕСТЬ» И «ПО МЕРЕ ДОСТУПНОСТИ», БЕЗ КАКИХ-ЛИБО
+ЗАВЕРЕНИЙ, ОБЯЗАТЕЛЬСТВ ИЛИ ГАРАНТИЙ, ПРЯМО ВЫРАЖЕННЫХ, ПОДРАЗУМЕВАЕМЫХ ЛИБО
+ПРЕДУСМОТРЕННЫХ ЗАКОНОМ, ВКЛЮЧАЯ ГАРАНТИИ ТОВАРНОЙ ПРИГОДНОСТИ, ПРИГОДНОСТИ
+ДЛЯ ОПРЕДЕЛЁННОЙ ЦЕЛИ, НАЛИЧИЯ ПРАВОВОГО ТИТУЛА, НЕНАРУШЕНИЯ ПРАВ ТРЕТЬИХ ЛИЦ,
+ТОЧНОСТИ, БЕЗОПАСНОСТИ, СОВМЕСТИМОСТИ, ДОСТУПНОСТИ, БЕСПЕРЕБОЙНОЙ РАБОТЫ ЛИБО
+ОТСУТСТВИЯ ОШИБОК.
+
+Автор, правообладатели и участники разработки не принимают на себя обязанностей
+по сопровождению, технической поддержке, обновлению, исправлению дефектов
+и уязвимостей, сертификации либо адаптации к какому-либо оборудованию,
+операционной системе или правовым требованиям. Не гарантируется предотвращение
+несанкционированного доступа, раскрытия информации, вредоносной активности
+либо иных инцидентов безопасности, а также разрешение или блокирование трафика
+в соответствии с ожиданиями пользователя.
+
+Вы самостоятельно несёте ответственность за оценку, испытание, внедрение,
+настройку, эксплуатацию и сопровождение Программного обеспечения и Производных
+продуктов, включая определение их пригодности, соблюдение законодательства
+и оценку влияния на безопасность системы и доступность сети.
+
+7. ОГРАНИЧЕНИЕ ОТВЕТСТВЕННОСТИ
+
+В МАКСИМАЛЬНО ДОПУСТИМЫХ ПРИМЕНИМЫМ ЗАКОНОДАТЕЛЬСТВОМ ПРЕДЕЛАХ АВТОР,
+ПРАВООБЛАДАТЕЛИ И УЧАСТНИКИ РАЗРАБОТКИ НЕ НЕСУТ ОТВЕТСТВЕННОСТИ ЗА ПРЯМЫЕ,
+КОСВЕННЫЕ, СЛУЧАЙНЫЕ, ОСОБЫЕ, ШТРАФНЫЕ ЛИБО ПОСЛЕДУЮЩИЕ УБЫТКИ ИЛИ УЩЕРБ,
+ВКЛЮЧАЯ УТРАТУ ПРИБЫЛИ, ВЫРУЧКИ, ДАННЫХ, КОНФИДЕНЦИАЛЬНОСТИ, ДЕЛОВОЙ
+РЕПУТАЦИИ ЛИБО КОММЕРЧЕСКИХ ВОЗМОЖНОСТЕЙ; БЛОКИРОВКУ ИЛИ ПРЕРЫВАНИЕ СЕТЕВОГО
+ОБМЕНА; ОТКАЗ СИСТЕМЫ ИЛИ ДРАЙВЕРОВ; ИНЦИДЕНТЫ БЕЗОПАСНОСТИ; РАСХОДЫ
+НА ВОССТАНОВЛЕНИЕ ЛИБО ЗАМЕЩАЮЩИЕ ТОВАРЫ И УСЛУГИ, ВОЗНИКАЮЩИЕ ИЗ ПРОГРАММНОГО
+ОБЕСПЕЧЕНИЯ, ПРОИЗВОДНЫХ ПРОДУКТОВ, ИХ ИСПОЛЬЗОВАНИЯ ИЛИ НЕВОЗМОЖНОСТИ
+ИСПОЛЬЗОВАНИЯ ЛИБО В СВЯЗИ С НИМИ.
+
+Данное ограничение применяется независимо от заявленного правового основания,
+включая договор, деликт, неосторожность, ответственность независимо от вины
+либо иное основание, даже если соответствующее лицо было уведомлено
+о возможности таких убытков или ущерба. Ничто в настоящей Лицензии не исключает
+и не ограничивает ответственность либо права, которые не могут быть законно
+исключены или ограничены в соответствии с применимым законодательством.
+
+8. СОБЛЮДЕНИЕ УСЛОВИЙ, ДЕЛИМОСТЬ И ЯЗЫК
+
+Предусмотренные настоящей Лицензией разрешения предоставляются при условии
+её соблюдения. Использование, распространение либо сублицензирование
+с несоблюдением её условий настоящей Лицензией не разрешаются. Настоящая
+Лицензия не отменяет права, правомерно приобретённые по иной лицензии,
+и не ограничивает права, ограничение которых соглашением не допускается.
+
+Если какое-либо положение будет признано неисполнимым, остальные положения
+продолжают действовать в пределах, допускаемых применимым законодательством.
+
+После английской версии приводится русский перевод, предназначенный
+для изложения тех же условий. В случае расхождений преимущественную силу
+имеет английская версия.
+
+
+APPENDIX / ПРИЛОЖЕНИЕ
+CERTIFICATE / СЕРТИФИКАТ
+
+-----BEGIN CERTIFICATE-----
+MIIFMDCCAxigAwIBAgIQFR5iIwpA3KxA9Vbd1WKs1DANBgkqhkiG9w0BAQ0FADAx
+MS8wLQYDVQQDDCZMb2NhbGhvc3QgUm9vdCBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0
+eTAgFw0yNjEwMDUxMTE3NDNaGA8yMTI2MTAwNTExMjc0MFowMTEvMC0GA1UEAwwm
+TG9jYWxob3N0IFJvb3QgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwggIiMA0GCSqG
+SIb3DQEBAQUAA4ICDwAwggIKAoICAQD0wp26xpFrCTWz3Y1186N/jz/IChIeg8wF
+23l0P2MFFE+MHf2pN1udzZXTK8UdD/O5/rhnTvgSuR6vAw5AoGGAWVkYh74cmDIJ
+sJCKn9HAC51nPRHIfRKsgJ0swMJFXcJNE7npRO+yhoqGhU5Dho1W7D2ByB97lftn
+7Q91Zf+dpwQzh5aowQojo6DR2yUUM1ISj2G7gjT5169B28G79nn1RQJqX65im3lC
+Pw5mehs/VoJx3iRG60KMcgy0WAt0zwR9ezbOt3dFtNTZsBbu5kdj2IW93qUn2KnW
+EgkpWhlTA6KuxXoOluvfTxNpSYSTCJk/7KMKwPNzz3jRW/VXXDDfvbyL6o2uGprQ
+IPXX0j07aEtVoAQwv6YJM4Bq5Hlr+ZW3DaKnrBGM9+hbd4MyB20j5EHQ1ezwv+Cn
+JPG3Eg9xxB3gRe8IbOI+iUY1SR8usHYVAe3DAStiU1Sg8EJiwlzMnm3rSml4L4HX
+mdhMqa/IpbAvws7P23JHYZ1ZsEK/9zM/RCmxU0wIEfkA0sxd2uKZnWF7IaMjDbb3
+TMUeNAhej20jTmxNJzHkc3q+vm7ZC5U4hrOfM86NAErB2sODIUNLk9586x81FziK
+L4BziKjgmz4Fk0jZlUZ49gPEV+u1h96B49OO8X8V/+hhMQjMQBvFHrW3Bz/WBlaP
+mtYseiODXQIDAQABo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/BAUwAwEB
+/zAdBgNVHQ4EFgQUHfMzgAqvHVeLNgnJfEGMIYU8e7QwDQYJKoZIhvcNAQENBQAD
+ggIBAHdZbXdyZCppre0HvPHqRmS+D/wqkswWLafr6pkBnrsDovucsbv1bdZMxYLI
+QxAivVhEyLbxCMERtlGlbY4pr6lzCAnoMDk4NjKbFcQiCpfhAl8KTpqu1RCaiG9a
+rttGLLpx3+Di9CfZK0yzxdSo31TSwRlBPr9Q3PUkhmTNWyrVCFkQcyVJUT20pwZL
+HJ4NW40hK5azdifsSxoAE7G4grGXxhbngfoMQJCpkkW+LyBxN2yKMUun4Y/38yq1
+oL1jeKGiZX0Z6GuPGNdwRn0OUuaJ7o/Y5SW61KAMkKzF2v/jHxAVwSiBtwruj+bW
+sr0BcJyNd7rjOhV5yHqVs9J1T8zQ0/YBxDoC0pItL2xR9hRHXX7hN0se0CnVoyEn
+EGCk66K+U5SlnU11KUPACueRgMGUOujthYLpdRxXhDBx4X+9LrJMVp1jUN02K53T
+SW/Wgdr2YR8QMirZOjNokDdXqD74XHZ1adWg7b10g/i7lvJTPxct7cLdZAIGApjv
+xJTo2iYT1JrhVY0CrlC3n9qpaW4S80YEUfdAXhHNumjk5Wpgb43Lu29I2FP2sDhW
+3G73Z5oS1MXmgaGdd/sKP1cJlg7dkL9XJXT5S6/Fc8dCn41czfYNdbJgoEeYwkyF
++UQR7ENOyuBtoaqs22Ryx+dA1KUY1ajpagzkrQyNbAA7Nys0
+-----END CERTIFICATE-----

@@ -1,0 +1,58 @@
+FIREWALLX.EXE / PORTMASTER-KEXT.SYS — WINDOWS 11 ENTERPRISE 26H2
+===============================================================
+
+Эта инструкция поможет запустить FirewallX.exe с самоподписанным драйвером
+portmaster-kext.sys в режиме Secure Boot или в тестовой виртуальной машине.
+
+Secure Boot
+-----------
+
+Драйвер должен быть подписан сертификатом, разрешённым в SiPolicy.p7b.
+Политика и localhost-pk.der должны относиться к одной схеме подписи. Сохраните
+резервные копии текущих ключей UEFI и политики EFI, а также ключ восстановления
+BitLocker. Существующая подписанная политика требует совместимого обновления.
+
+Перед копированием политики проверьте наличие DWORD ниже; если его нет,
+обновите Windows:
+
+    HKLM\SYSTEM\CurrentControlSet\Control\CI\Protected\CustomKernelSignerLockedEnabled
+
+1. В командной строке администратора из папки с файлами скопируйте политику на EFI
+   (X: — свободная буква диска):
+
+    mountvol.exe X: /S
+    copy SiPolicy.p7b X:\EFI\Microsoft\Boot\SiPolicy.p7b
+    mountvol.exe X: /D
+
+2. Загрузитесь в WinPE или другую Windows и откройте куст SYSTEM целевой
+   системы в Regedit. В ControlSet, выбранном через Select\Default, установите:
+
+    ControlSet00x\Control\CI\Protected\CustomKernelSignerLockedEnabled = 1 (DWORD)
+
+   Выгрузите куст. Если параметра нет, обновите Windows и проверьте снова.
+
+3. В UEFI включите Secure Boot Custom Mode и установите localhost-pk.der как
+   Platform Key (PK). В AMI BIOS и, при необходимости, других прошивках
+   добавьте "windows uefi ca 2023.der" в Authorized Signatures (db). Сохраните
+   существующие сертификаты загрузки и оставьте Secure Boot включённым.
+
+4. Загрузите Windows, проверьте, что CustomKernelSignerLockedEnabled равен 1,
+   и запустите FirewallX.exe, который использует portmaster-kext.sys.
+
+Для фильтрации транзитного и Hyper-V трафика нужно импортировать корневой сертификат
+из командной строки администратора в папке с файлами и вручную установить драйвер из папки ndis:
+
+    certutil -addstore -f "Root" localhost-root-ca.der
+
+Виртуальная машина: тестовый режим
+---------------------------------
+
+В тестовой ВМ отключите Secure Boot в её прошивке, выполните команды из
+командной строки администратора в папке с файлами и перезагрузите ВМ:
+
+    bcdedit.exe -set TESTSIGNING ON
+    certutil -addstore -f "Root" localhost-root-ca.der
+
+После перезагрузки запустите FirewallX.exe.
+
+Полная инструкция: https://github.com/GerardoKermitToy/windows_kext_mod

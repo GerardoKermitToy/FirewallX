@@ -1,0 +1,168 @@
+﻿#include <windows.h>
+#include "resource.h"
+
+/* Каждый язык хранится в отдельном файле со своей директивой LANGUAGE.
+   Она помечает следующий за ней блок ресурсов, поэтому порядок включения
+   важен. StringRes выбирает нужную локаль явно через FindResourceExW,
+   независимо от языка интерфейса Windows. */
+
+/* Значок и манифест текста не содержат, поэтому помечаются нейтральным
+   языком: иначе загрузчик искал бы их по языку интерфейса. */
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+
+1 24 "app.manifest"        /* 24 = RT_MANIFEST */
+
+/* Главный значок программы: используется окном, панелью задач, треем и Explorer */
+IDI_ICON1 ICON "firewall.ico"
+
+/* Флаги для меню выбора языка. Файлы лежат в папке flags внутри репозитория и
+   встраиваются в .exe при сборке: внешний путь на диске сделал бы сборку
+   невозможной на любой другой машине.
+   Вариант ICON позволяет системе выбрать нужный размер под текущий DPI. */
+IDI_FLAG_RU ICON "flags/flag_ru.ico"
+IDI_FLAG_US ICON "flags/flag_us.ico"
+IDI_FLAG_KR ICON "flags/flag_kr.ico"
+IDI_FLAG_ZH ICON "flags/flag_zh.ico"
+IDI_FLAG_UK ICON "flags/flag_uk.ico"
+IDI_FLAG_DE ICON "flags/flag_de.ico"
+IDI_FLAG_FR ICON "flags/flag_fr.ico"
+IDI_FLAG_ES ICON "flags/flag_es.ico"
+IDI_FLAG_SA ICON "flags/flag_sa.ico"
+IDI_FLAG_IN ICON "flags/flag_in.ico"
+IDI_FLAG_LV ICON "flags/flag_lv.ico"
+IDI_FLAG_LT ICON "flags/flag_lt.ico"
+IDI_FLAG_EE ICON "flags/flag_ee.ico"
+IDI_FLAG_RO ICON "flags/flag_ro.ico"
+IDI_FLAG_SE ICON "flags/flag_se.ico"
+IDI_FLAG_PL ICON "flags/flag_pl.ico"
+IDI_FLAG_VN ICON "flags/flag_vn.ico"
+IDI_FLAG_PT ICON "flags/flag_pt.ico"
+IDI_FLAG_IT ICON "flags/flag_it.ico"
+IDI_FLAG_IR ICON "flags/flag_ir.ico"
+IDI_FLAG_JP ICON "flags/flag_jp.ico"
+IDI_FLAG_TR ICON "flags/flag_tr.ico"
+IDI_FLAG_ID ICON "flags/flag_id.ico"
+IDI_FLAG_CZ ICON "flags/flag_cz.ico"
+IDI_FLAG_TH ICON "flags/flag_th.ico"
+IDI_FLAG_BR ICON "flags/flag_br.ico"
+IDI_FLAG_TW ICON "flags/flag_tw.ico"
+IDI_FLAG_HU ICON "flags/flag_hu.ico"
+IDI_FLAG_GR ICON "flags/flag_gr.ico"
+IDI_FLAG_NL ICON "flags/flag_nl.ico"
+IDI_FLAG_BG ICON "flags/flag_bg.ico"
+IDI_FLAG_DK ICON "flags/flag_dk.ico"
+IDI_FLAG_NO ICON "flags/flag_no.ico"
+IDI_FLAG_FI ICON "flags/flag_fi.ico"
+
+/* ======================== русская локаль (ru-RU) ======================== */
+#include "resources/firewall_ru.rc"
+
+/* ======================== английская локаль (en-US) ======================== */
+#include "resources/firewall_en.rc"
+
+/* ======================== корейская локаль (ko-KR) ======================== */
+#include "resources/firewall_kr.rc"
+
+/* ================== китайская упрощённая локаль (zh-CN) ================== */
+#include "resources/firewall_zh.rc"
+
+/* ======================== украинская локаль (uk-UA) ======================== */
+#include "resources/firewall_uk.rc"
+
+/* ======================== немецкая локаль (de-DE) ======================== */
+#include "resources/firewall_de.rc"
+
+/* ======================= французская локаль (fr-FR) ======================= */
+#include "resources/firewall_fr.rc"
+
+/* ======================== испанская локаль (es-ES) ======================== */
+#include "resources/firewall_es.rc"
+
+/* ======================== арабская локаль (ar-SA) ======================== */
+#include "resources/firewall_ar.rc"
+
+/* ========================== хинди (hi-IN) ========================== */
+#include "resources/firewall_hi.rc"
+
+/* ======================== латышская локаль (lv-LV) ======================== */
+#include "resources/firewall_lv.rc"
+
+/* ======================== литовская локаль (lt-LT) ======================== */
+#include "resources/firewall_lt.rc"
+
+/* ======================== эстонская локаль (et-EE) ======================== */
+#include "resources/firewall_et.rc"
+
+/* ======================== румынская локаль (ro-RO) ======================== */
+#include "resources/firewall_ro.rc"
+
+/* ======================== шведская локаль (sv-SE) ======================== */
+#include "resources/firewall_sv.rc"
+
+/* ======================== польская локаль (pl-PL) ======================== */
+#include "resources/firewall_pl.rc"
+
+/* ====================== вьетнамская локаль (vi-VN) ====================== */
+#include "resources/firewall_vi.rc"
+
+/* ===================== португальская локаль (pt-PT) ===================== */
+#include "resources/firewall_pt.rc"
+
+/* ======================= итальянская локаль (it-IT) ======================= */
+#include "resources/firewall_it.rc"
+
+/* ======================== персидская локаль (fa-IR) ======================== */
+#include "resources/firewall_fa.rc"
+
+/* ======================== японская локаль ======================== */
+#include "resources/firewall_ja.rc"
+
+/* ======================== турецкая локаль ======================== */
+#include "resources/firewall_tr.rc"
+
+/* ======================== индонезийская локаль ======================== */
+#include "resources/firewall_id.rc"
+
+/* ======================== чешская локаль ======================== */
+#include "resources/firewall_cs.rc"
+
+/* ======================== тайская локаль ======================== */
+#include "resources/firewall_th.rc"
+
+/* ======================== бразильская португальская локаль ======================== */
+#include "resources/firewall_pt_br.rc"
+
+/* ======================== китайская традиционная локаль ======================== */
+#include "resources/firewall_zh_tw.rc"
+
+/* ======================== венгерская локаль ======================== */
+#include "resources/firewall_hu.rc"
+
+/* ======================== греческая локаль ======================== */
+#include "resources/firewall_el.rc"
+
+/* ======================== нидерландская локаль ======================== */
+#include "resources/firewall_nl.rc"
+
+/* ======================== болгарская локаль ======================== */
+#include "resources/firewall_bg.rc"
+
+/* ======================== датская локаль ======================== */
+#include "resources/firewall_da.rc"
+
+/* ======================== норвежская (букмол) локаль ======================== */
+#include "resources/firewall_nb.rc"
+
+/* ======================== финская локаль ======================== */
+#include "resources/firewall_fi.rc"
+
+/* Предустановки: все языки и названия правил собраны в одном файле. */
+#include "RulePresets.rc"
+
+/* ======================== локализованные диалоги ========================
+   Ресурс версии есть только на русском и английском: Explorer показывает его
+   по языку системы, а не по выбранному в программе, и при отсутствии нужной
+   локали берёт первую доступную. Дублировать номера версии на каждый язык
+   смысла нет. */
+#include "firewall_dialogs_ru.rc"
+#include "firewall_dialogs_en.rc"

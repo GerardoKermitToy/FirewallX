@@ -1,0 +1,27 @@
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    FIREWALLX_VER_MAJOR,FIREWALLX_VER_MINOR,FIREWALLX_VER_PATCH,FIREWALLX_VER_BUILD
+ PRODUCTVERSION FIREWALLX_VER_MAJOR,FIREWALLX_VER_MINOR,FIREWALLX_VER_PATCH,FIREWALLX_VER_BUILD
+ FILEOS VOS__WINDOWS32
+ FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription",  "Interactive Firewall for Windows 11"
+            VALUE "FileVersion",      FIREWALLX_VERSION_STR
+            VALUE "ProductName",      "FirewallX"
+            VALUE "ProductVersion",   FIREWALLX_VERSION_STR
+            VALUE "InternalName",     FIREWALLX_PRODUCT
+            VALUE "OriginalFilename", FIREWALLX_PRODUCT ".exe"
+            VALUE "LegalCopyright",   "skrudjmdk (https://forum.ru-board.com/profile.cgi?action=show&member=skrudjmdk)"
+            VALUE "Comments",         FIREWALLX_AUTHOR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
