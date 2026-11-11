@@ -2,6 +2,7 @@
 #include "MacroAddr.h"
 #include "Rules.h"
 #include "StringRes.h"
+#include "Settings.h"
 #include <netioapi.h>
 
 #include <algorithm>
@@ -803,6 +804,53 @@ void TestFrozenInterfaceQueries() {
     watcher.Stop();
 }
 
+void TestReverseNdisInterfaces() {
+    ResetFixture();
+    auto adapter = SampleAdapters().front();
+    SetAdapters({adapter});
+    const std::wstring key = Settings::Key::kNdisReverseTrafficPrefix + adapter.name;
+    Check(Settings::SetBool(key.c_str(), true), "cannot set Ndis direction preference");
+    Watcher watcher;
+    Check(watcher.Refresh(), "cannot load Ndis direction preference");
+    Check(watcher.ReverseNdisTraffic(7) && watcher.ReverseNdisTraffic(17) &&
+              !watcher.ReverseNdisTraffic(0) && !watcher.ReverseNdisTraffic(11),
+          "Ndis preference matched the wrong interface index");
+    const auto reads = enumerationCalls.load();
+    const auto before = watcher.GetSnapshot();
+    Check(Settings::SetBool(key.c_str(), false) && watcher.SetReverseNdisTraffic(adapter.name, false) &&
+              !watcher.ReverseNdisTraffic(7) && !watcher.ReverseNdisTraffic(17) &&
+              before->interfaces.front().reverse_ndis_traffic &&
+              watcher.SnapshotVersion() > before->version,
+          "Ndis preference did not update the immutable snapshot immediately");
+    Check(Settings::SetBool(key.c_str(), true) && watcher.SetReverseNdisTraffic(adapter.name, true),
+          "cannot restore Ndis preference");
+    for (int i = 0; i < 10000; ++i) Check(watcher.ReverseNdisTraffic(7), "cached preference changed");
+    Check(enumerationCalls == reads, "Ndis preference lookup enumerated adapters");
+    auto other = SampleAdapters()[1];
+    const std::wstring otherKey = Settings::Key::kNdisReverseTrafficPrefix + other.name;
+    Check(Settings::SetBool(otherKey.c_str(), true), "cannot set second Ndis preference");
+    SetAdapters({adapter, other});
+    Check(watcher.Refresh() && watcher.ReverseNdisTraffic(7) && watcher.ReverseNdisTraffic(17) &&
+              watcher.ReverseNdisTraffic(1) && !watcher.ReverseNdisTraffic(11),
+          "Ndis preferences failed with more than two indices");
+    Check(Settings::Remove(otherKey.c_str()), "cannot remove second Ndis preference");
+    adapter.number = 29;
+    adapter.ipv6_number = 39;
+    SetAdapters({adapter});
+    Check(watcher.Refresh() && !watcher.ReverseNdisTraffic(7) &&
+              watcher.ReverseNdisTraffic(29) && watcher.ReverseNdisTraffic(39),
+          "renumbered Ndis interface retained its old index");
+    adapter.up = false;
+    SetAdapters({adapter});
+    Check(watcher.Refresh() && watcher.ReverseNdisTraffic(29),
+          "Ndis preference ignored a known inactive interface index");
+    adapter.name = L"Renamed";
+    SetAdapters({adapter});
+    Check(watcher.Refresh() && !watcher.ReverseNdisTraffic(29),
+          "Ndis preference followed a renamed interface");
+    Check(Settings::Remove(key.c_str()), "cannot remove Ndis test preference");
+}
+
 void TestSynchronousRuleRecovery() {
     for (bool running : {true, false}) {
         ResetFixture();
@@ -878,6 +926,8 @@ void TestSynchronousRuleRecovery() {
 
 int main() {
     try {
+        std::wstring error;
+        Check(Settings::Open(L":memory:", error), "cannot open test settings");
         TestSnapshots();
         TestAddedNotifications();
         TestNotificationsAndRaces();
@@ -885,6 +935,7 @@ int main() {
         TestMacros();
         TestInterfaceRuleGroups();
         TestFrozenInterfaceQueries();
+        TestReverseNdisInterfaces();
         TestSynchronousRuleRecovery();
         TestInterfaceFilterScopes();
         TestInterfaceFilterUpdates();

@@ -4,6 +4,8 @@
 #include "RuleInheritanceUi.h"
 #include "RuleInterfaceUi.h"
 #include "NdisBinding.h"
+#include "network_interface_watcher.h"
+#include "NdisTransport.h"
 #include "Settings.h"
 #include "StringRes.h"
 #include "UiKit.h"
@@ -29,12 +31,14 @@ public:
     bool interfaceBindingAvailable = false;
     bool excludeTransit = false;
     bool originalExcludeTransit = false;
+    bool reverseTraffic = false;
+    bool originalReverseTraffic = false;
 
 protected:
     enum {
         IDC_LIST = 400, IDC_NEW, IDC_EDIT, IDC_DUP, IDC_DEL,
         IDC_UP, IDC_DOWN, IDC_ORDER, IDC_SCOPE, IDC_EXPLAIN, IDC_INHERITANCE, IDC_INHERITANCE_NEVER,
-        IDC_PREFERRED_INTERFACE, IDC_EXCLUDE_TRANSIT, IDC_BLOCK_OTHER_INTERFACES
+        IDC_PREFERRED_INTERFACE, IDC_EXCLUDE_TRANSIT, IDC_BLOCK_OTHER_INTERFACES, IDC_REVERSE_TRAFFIC
     };
 
     bool ModernStyle() const override { return true; }
@@ -76,6 +80,10 @@ protected:
             Check(LoadStringRes(IDS_INTERFACE_EXCLUDE_TRANSIT), x, y, w, m.editH(), IDC_EXCLUDE_TRANSIT);
             SetChecked(IDC_EXCLUDE_TRANSIT, excludeTransit);
             Enable(IDC_EXCLUDE_TRANSIT, interfaceBindingAvailable);
+            y += m.editH() + m.gapS();
+            Check(LoadStringRes(IDS_INTERFACE_REVERSE_TRAFFIC), x, y, w, m.editH(), IDC_REVERSE_TRAFFIC);
+            SetChecked(IDC_REVERSE_TRAFFIC, reverseTraffic);
+            Enable(IDC_REVERSE_TRAFFIC, interfaceBindingAvailable);
             y += m.editH() + m.section();
         }
         if (preferredInterfaceAvailable) {
@@ -178,6 +186,9 @@ protected:
 
     bool OnCommand(int id, int code) override {
         switch (id) {
+        case IDC_REVERSE_TRAFFIC:
+            if (code == BN_CLICKED) reverseTraffic = Checked(id);
+            return true;
         case IDC_EXCLUDE_TRANSIT:
             if (code == BN_CLICKED) excludeTransit = Checked(id);
             return true;
@@ -527,6 +538,9 @@ bool AppRulesEditor::Run(HWND owner, HINSTANCE inst, RuleStore& store,
             const auto key = ndis_binding::InterfacePreferenceKey(appPath);
             d.excludeTransit = Settings::GetBool(key.c_str(), false);
             d.originalExcludeTransit = d.excludeTransit;
+            const std::wstring reverseKey = Settings::Key::kNdisReverseTrafficPrefix + appPath;
+            d.reverseTraffic = Settings::GetBool(reverseKey.c_str(), false);
+            d.originalReverseTraffic = d.reverseTraffic;
         }
     } else if (global)
         d.appName = LoadStringRes(IDS_APPED_ALL_PROCESSES);
@@ -550,7 +564,7 @@ bool AppRulesEditor::Run(HWND owner, HINSTANCE inst, RuleStore& store,
 
     if (!d.Run(owner, inst, LoadStringRes(titleStrId), 640,
                616 + (d.inheritanceAvailable ? 80 : 0) + (d.preferredInterfaceAvailable ? 94 : 0) +
-               (d.interfaceGroup ? 40 : 0)))
+               (d.interfaceGroup ? 68 : 0)))
         return false;
 
     RuleScope scope = interfaceGroup ? RuleScope::Interface :
@@ -561,6 +575,17 @@ bool AppRulesEditor::Run(HWND owner, HINSTANCE inst, RuleStore& store,
     if (d.inheritanceAvailable) store.SetInheritance(d.appPath, d.inheritance);
     if (d.preferredInterfaceAvailable)
         store.SetPreferredInterface(d.appPath, d.preferredInterface, d.blockOtherInterfaces);
+    if (d.interfaceBindingAvailable && d.reverseTraffic != d.originalReverseTraffic) {
+        const std::wstring key = Settings::Key::kNdisReverseTrafficPrefix + d.appPath;
+        if (!Settings::SetBool(key.c_str(), d.reverseTraffic)) {
+            Ui::ShowMessage(owner, LoadStringResFmt(IDS_INTERFACE_EXCLUDE_SAVE_ERROR,
+                Settings::lastError().c_str()).c_str(), LoadStringRes(IDS_ERROR_TITLE).c_str(), MB_ICONERROR);
+        } else {
+            auto& watcher = net::SharedNetworkInterfaces();
+            if (!watcher.SetReverseNdisTraffic(d.appPath, d.reverseTraffic)) watcher.RequestRefresh();
+            firewallxndisfilter_clear_cache();
+        }
+    }
     if (d.interfaceBindingAvailable && d.excludeTransit != d.originalExcludeTransit) {
         const auto key = ndis_binding::InterfacePreferenceKey(d.appPath);
         if (!Settings::SetBool(key.c_str(), d.excludeTransit)) {

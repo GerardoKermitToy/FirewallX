@@ -663,6 +663,7 @@ if(FIREWALLX_BUILD_TESTS)
         tests/flowstore_lifecycle_tests.cpp
         FlowStore.cpp
         MacroAddr.cpp
+        Settings.cpp
         Util.cpp
         StringRes.cpp
     )
@@ -676,7 +677,7 @@ if(FIREWALLX_BUILD_TESTS)
         _WIN32_WINNT=0x0A00 WINVER=0x0A00 NTDDI_VERSION=0x0A000010
     )
     target_link_libraries(flowstore_lifecycle_tests PRIVATE
-        iphlpapi ws2_32 comctl32 uxtheme gdi32 user32
+        winsqlite3 iphlpapi ws2_32 comctl32 uxtheme gdi32 user32
         shell32 shlwapi ole32 advapi32 comdlg32
     )
     if(MSVC)
@@ -1132,6 +1133,7 @@ if(FIREWALLX_BUILD_TESTS)
     # ServiceInfo.cpp подключён в тесте с подменой только вызовов SCM.
     add_executable(rules_lookup_bench EXCLUDE_FROM_ALL
         tests/rules_lookup_bench.cpp
+        Settings.cpp
         Rules.cpp
         RuleDb.cpp
         MacroAddr.cpp
@@ -1202,6 +1204,7 @@ if(FIREWALLX_BUILD_TESTS)
     # Снимок SCM заменён управляемой заглушкой, дескрипторы процессов настоящие.
     add_executable(process_handle_tests
         tests/process_handle_tests.cpp
+        Settings.cpp
         FirewallPolicy.cpp
         Rules.cpp
         RuleDb.cpp
@@ -1243,7 +1246,7 @@ if(FIREWALLX_BUILD_TESTS)
     add_executable(network_interface_watcher_tests
         tests/network_interface_watcher_tests.cpp tests/interface_filter_tests.h
         tests/app_interface_preference_tests.h FirewallPolicy.cpp
-        Rules.cpp RuleDb.cpp ServiceInfo.cpp
+        Rules.cpp RuleDb.cpp ServiceInfo.cpp Settings.cpp
         Util.cpp StringRes.cpp rules_matching_tests.rc
     )
     foreach(property INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS LINK_OPTIONS LINK_LIBRARIES)
@@ -1259,8 +1262,10 @@ if(FIREWALLX_BUILD_TESTS)
     add_test(NAME network_interface_watcher COMMAND network_interface_watcher_tests)
     set_tests_properties(network_interface_watcher PROPERTIES TIMEOUT 30)
 
-    add_executable(network_interface_watcher_live_tests tests/network_interface_watcher_live_tests.cpp)
-    target_link_libraries(network_interface_watcher_live_tests PRIVATE firewallx_network_interfaces)
+    add_executable(network_interface_watcher_live_tests
+        tests/network_interface_watcher_live_tests.cpp Settings.cpp Util.cpp StringRes.cpp rules_matching_tests.rc)
+    target_link_libraries(network_interface_watcher_live_tests PRIVATE
+        firewallx_network_interfaces winsqlite3 ws2_32 comctl32 uxtheme gdi32 user32 shell32 shlwapi ole32)
     if(MSVC)
         target_compile_options(network_interface_watcher_live_tests PRIVATE /W4 /WX /permissive- /utf-8 /Zc:__cplusplus)
     endif()

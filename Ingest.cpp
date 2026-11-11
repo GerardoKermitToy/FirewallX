@@ -1940,6 +1940,7 @@ bool Ingest::ReloadServiceRules(const std::wstring& path) {
             return false;
     }
     const FirewallPolicy policy = FirewallPolicySetting::Load();
+    if (source_ == TrafficSource::Ndis) net::SharedNetworkInterfaces().Refresh();
 #ifdef FIREWALLX_TEST_VERDICTS
     if (IngestWorkProbe::afterServicePolicyLoad) IngestWorkProbe::afterServicePolicyLoad();
 #endif
@@ -3197,12 +3198,18 @@ void Ingest::HandleNdisFixed(const Fixed& e, const uint8_t* payload, size_t len)
     std::shared_lock policyLock(policyMtx_);
     DriverVerdictRequest request = firewallxndisfilter_register_request(e.id);
     if (!request) return;
-    const PacketFacts facts = ReadPacket(payload, len, e.protocol, e.remote_port);
+    const bool reverse = net::SharedNetworkInterfaces().ReverseNdisTraffic(e.interface_index);
+    const PacketFacts facts = ReadPacket(payload, len, e.protocol, reverse ? e.local_port : e.remote_port);
     FlowKey key = MakeFlowKey(ProtoFromNumber(e.protocol),
         IpFromRaw(e.local_ip), IpFromRaw(e.remote_ip), e.local_port, e.remote_port);
+    if (reverse) {
+        std::swap(key.local, key.remote);
+        std::swap(key.lport, key.rport);
+    }
     key.source = TrafficSource::Ndis;
     key.interfaceIndex = e.interface_index;
-    const Dir dir = DirFromDriver(e.direction);
+    Dir dir = DirFromDriver(e.direction);
+    if (reverse) dir = dir == Dir::In ? Dir::Out : Dir::In;
     if (mode() == IngestMode::Desktop && key.proto == Proto::Tcp &&
         (key.rport == 443 || key.rport == 8443) &&
         (facts.tcpFlags & 0x002u) != 0) ForgetTlsAssembly(key);

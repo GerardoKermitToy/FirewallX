@@ -1,4 +1,5 @@
 #include "network_interface_watcher.h"
+#include "Settings.h"
 
 #include <netioapi.h>
 #include <algorithm>
@@ -163,6 +164,42 @@ public:
         return std::nullopt;
     }
 
+    bool ReverseNdisTraffic(std::uint32_t index) const {
+        if (!index) return false;
+        const std::uint64_t indices = reverse_ndis_indices_.load(std::memory_order_acquire);
+        if (indices != UINT64_MAX)
+            return index == static_cast<std::uint32_t>(indices) ||
+                   index == static_cast<std::uint32_t>(indices >> 32);
+        const auto snapshot = GetSnapshot();
+        if (!snapshot) return false;
+        for (const auto& entry : snapshot->interfaces)
+            if (entry.reverse_ndis_traffic &&
+                (entry.number == index || entry.ipv6_number == index)) return true;
+        return false;
+    }
+
+    bool SetReverseNdisTraffic(std::wstring_view name, bool reverse) {
+        std::lock_guard refresh(refresh_mutex_);
+        std::lock_guard lock(state_mutex_);
+        if (!snapshot_) return false;
+        auto next = std::make_shared<Snapshot>(*snapshot_);
+        bool changed = false;
+        for (auto& entry : next->interfaces) {
+            if (entry.name == name && entry.reverse_ndis_traffic != reverse) {
+                entry.reverse_ndis_traffic = reverse;
+                changed = true;
+            }
+        }
+        if (changed) {
+            const std::uint64_t indices = ReverseNdisIndices(*next);
+            next->version = snapshot_->version + 1;
+            snapshot_ = std::move(next);
+            reverse_ndis_indices_.store(indices, std::memory_order_release);
+            snapshot_version_.store(snapshot_->version, std::memory_order_release);
+        }
+        return true;
+    }
+
     std::size_t GetInterfaceCount() const noexcept {
         std::lock_guard<std::mutex> lock(state_mutex_);
         return snapshot_ ? snapshot_->interfaces.size() : 0;
@@ -173,6 +210,21 @@ public:
     }
 
 private:
+    // Два индекса помещаются в атомарное значение; при большем числе используется снимок.
+    static std::uint64_t ReverseNdisIndices(const Snapshot& snapshot) noexcept {
+        std::uint32_t first = 0, second = 0;
+        for (const auto& entry : snapshot.interfaces) {
+            if (!entry.reverse_ndis_traffic) continue;
+            for (const auto index : {entry.number, entry.ipv6_number}) {
+                if (!index || index == first || index == second) continue;
+                if (!first) first = index;
+                else if (!second) second = index;
+                else return UINT64_MAX;
+            }
+        }
+        return static_cast<std::uint64_t>(first) | (static_cast<std::uint64_t>(second) << 32);
+    }
+
     struct RegistryWatch {
         HKEY key = nullptr;
         HANDLE event = nullptr;
@@ -260,6 +312,10 @@ private:
                 if (adapter->FriendlyName) entry.name = adapter->FriendlyName;
                 entry.up = adapter->OperStatus == IfOperStatusUp;
                 entry.loopback = adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK;
+                if (!entry.name.empty()) {
+                    const std::wstring key = Settings::Key::kNdisReverseTrafficPrefix + entry.name;
+                    entry.reverse_ndis_traffic = Settings::GetBool(key.c_str(), false);
+                }
                 for (const auto* unicast = adapter->FirstUnicastAddress; unicast; unicast = unicast->Next) {
                     IpAddr ip;
                     if (FromSockaddr(unicast->Address, ip))
@@ -303,7 +359,9 @@ private:
                 return false;
             }
             next->version = snapshot_version_.load(std::memory_order_relaxed) + 1;
+            const std::uint64_t indices = ReverseNdisIndices(*next);
             snapshot_ = std::move(next);
+            reverse_ndis_indices_.store(indices, std::memory_order_release);
             snapshot_version_.store(snapshot_->version, std::memory_order_release);
             last_error_.store(ERROR_SUCCESS, std::memory_order_relaxed);
             return true;
@@ -574,6 +632,7 @@ private:
     std::thread worker_;
     std::uint64_t snapshot_generation_ = 0;
     std::atomic<std::uint64_t> snapshot_version_{0};
+    std::atomic<std::uint64_t> reverse_ndis_indices_{0};
     bool running_ = false;
     std::atomic<std::uint32_t> last_error_{ERROR_SUCCESS};
     static thread_local Impl* current_callback_owner_;
@@ -625,6 +684,12 @@ std::optional<std::uint32_t> NetworkInterfaceWatcher::GetInterfaceNumberByName(
 }
 std::optional<std::wstring> NetworkInterfaceWatcher::GetInterfaceNameByIndex(std::uint32_t index) const {
     return impl_->GetInterfaceName(index);
+}
+bool NetworkInterfaceWatcher::ReverseNdisTraffic(std::uint32_t index) const {
+    return impl_->ReverseNdisTraffic(index);
+}
+bool NetworkInterfaceWatcher::SetReverseNdisTraffic(std::wstring_view name, bool reverse) {
+    return impl_->SetReverseNdisTraffic(name, reverse);
 }
 std::vector<NetworkInterfaceWatcher::InterfaceInfo> NetworkInterfaceWatcher::GetInterfaces() const {
     const auto snapshot = GetSnapshot();

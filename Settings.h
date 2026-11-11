@@ -71,6 +71,7 @@ inline constexpr wchar_t kDesktopPolicy[] = L"firewall.desktop.policy";
 inline constexpr wchar_t kPreciseTrafficAttribution[] = L"driver.traffic.precise_attribution";
 // Суффикс — отображаемое имя сетевого интерфейса.
 inline constexpr wchar_t kNdisExcludedInterfacePrefix[] = L"driver.ndis.excluded.";
+inline constexpr wchar_t kNdisReverseTrafficPrefix[] = L"driver.ndis.reverse_traffic.";
 }
 
 } // namespace Settings

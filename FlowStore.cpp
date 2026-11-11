@@ -2051,21 +2051,28 @@ FlowStore::ConnectionRecord* FlowStore::NdisConnectionLocked(
 template <class Value>
 void FlowStore::AddNdisBandwidth(uint8_t protocol, const Value* entries, uint32_t count, uint32_t interfaceIndex) {
     if ((!entries && count) || !enabled_.load(std::memory_order_relaxed)) return;
+    const bool reverse = net::SharedNetworkInterfaces().ReverseNdisTraffic(interfaceIndex);
     const ULONGLONG now = GetTickCount64();
     std::lock_guard<std::mutex> lock(mtx_);
     for (uint32_t i = 0; i < count; ++i) {
         const Value& entry = entries[i];
         FlowKey key = MakeFlowKey(ProtoFromNumber(protocol), IpFromRaw(entry.local_ip),
             IpFromRaw(entry.remote_ip), entry.local_port, entry.remote_port);
+        if (reverse) {
+            std::swap(key.local, key.remote);
+            std::swap(key.lport, key.rport);
+        }
         key.source = TrafficSource::Ndis;
         key.interfaceIndex = interfaceIndex;
         ConnectionRecord* connection = NdisConnectionLocked(key);
         DriverDetails& details = EnsureDriverDetails(*connection);
         CaptureInterface(details, interfaceIndex);
-        details.sent += entry.transmitted_bytes;
-        details.recv += entry.received_bytes;
-        details.periodSent += entry.transmitted_bytes;
-        details.periodRecv += entry.received_bytes;
+        const uint64_t sent = reverse ? entry.received_bytes : entry.transmitted_bytes;
+        const uint64_t recv = reverse ? entry.transmitted_bytes : entry.received_bytes;
+        details.sent += sent;
+        details.recv += recv;
+        details.periodSent += sent;
+        details.periodRecv += recv;
         const TrafficPeriod period = ndisBandwidthPoll_.end
             ? ndisBandwidthPoll_ : TrafficPeriod{ details.lastBandwidthAt, now };
         details.period.Include(period.begin, period.end);

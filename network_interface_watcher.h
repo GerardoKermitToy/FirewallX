@@ -66,6 +66,7 @@ public:
         std::wstring name;             // Имя подключения из панели управления.
         bool up = false;
         bool loopback = false;
+        bool reverse_ndis_traffic = false;
         std::vector<UnicastAddress> unicast;
         std::vector<IpAddr> dns_servers;
         std::vector<IpAddr> wins_servers;
@@ -130,6 +131,8 @@ public:
         std::wstring_view name, const SnapshotPtr& snapshot = {}) const;
     std::optional<std::wstring> GetInterfaceNameByIndex(
         std::uint32_t interface_index) const;
+    bool ReverseNdisTraffic(std::uint32_t interface_index) const;
+    bool SetReverseNdisTraffic(std::wstring_view name, bool reverse);
 
     // Копирование предусмотрено только для редких потребителей списка.
     std::vector<InterfaceInfo> GetInterfaces() const;

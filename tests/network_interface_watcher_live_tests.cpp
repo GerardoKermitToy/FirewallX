@@ -1,4 +1,5 @@
 #include "network_interface_watcher.h"
+#include "Settings.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -8,6 +9,9 @@
 
 int main() {
     try {
+        std::wstring error;
+        if (!Settings::Open(L":memory:", error))
+            throw std::runtime_error("cannot open isolated test settings");
         std::mutex mutex;
         std::condition_variable ready;
         net::NetworkInterfaceWatcher watcher([&](const auto&) {

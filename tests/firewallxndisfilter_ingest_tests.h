@@ -797,12 +797,186 @@ void TestFrozenPendingInterfaceIdentity() {
     FlowStore::Instance().Reset();
 }
 
+void TestNdisReverseTraffic() {
+    using Native = firewallxndisfilter::Client;
+    auto& watcher = net::SharedNetworkInterfaces();
+    const uint32_t index = RuntimeTestInterface();
+    const std::wstring name = *watcher.GetInterfaceName(index);
+    const std::wstring setting = Settings::Key::kNdisReverseTrafficPrefix + name;
+    Ingest& host = Ingest::Instance();
+    Ingest& guest = Ingest::ForSource(TrafficSource::Ndis);
+    FlowStore& flows = FlowStore::Instance();
+    const bool enabled = flows.enabled();
+    flows.Enable(true);
+    RuleStore rules;
+    DriverVerdictSession session;
+    ndisCaptureSession = &session;
+    IngestTestAccess::ResetSessionState(host);
+    IngestTestAccess::ResetSessionState(guest);
+    host.Attach(&rules, nullptr, IngestMode::Desktop, FirewallPolicy::Learning);
+    guest.BeginDriverSession(session.Begin());
+    uint64_t id = 9000;
+
+    for (bool reverse : {false, true}) {
+        Check(Settings::SetBool(setting.c_str(), reverse) && watcher.Refresh(),
+              "cannot update Ndis direction preference");
+        for (bool other : {false, true})
+        for (uint8_t direction : {uint8_t{0}, uint8_t{1}})
+        for (bool ipv6 : {false, true}) {
+            flows.Reset();
+            const bool flipped = reverse && !other;
+            const auto check = [&](auto event, auto bandwidth) {
+                event.id = id++;
+                event.interface_index = other ? 0xfedcba98u : index;
+                event.protocol = ProtoNumber(Proto::Udp);
+                event.direction = direction;
+                event.payload_layer = 3;
+                event.local_ip[0] = 192;
+                event.remote_ip[0] = 198;
+                event.local_port = 41000;
+                event.remote_port = 53;
+                std::memcpy(bandwidth.local_ip, event.local_ip, sizeof(event.local_ip));
+                std::memcpy(bandwidth.remote_ip, event.remote_ip, sizeof(event.remote_ip));
+                bandwidth.local_port = event.local_port;
+                bandwidth.remote_port = event.remote_port;
+                bandwidth.transmitted_bytes = 11;
+                bandwidth.received_bytes = 23;
+                guest.HandleNdis(event, nullptr, 0);
+                std::vector<AskRequest> pending;
+                host.TakePending(pending);
+                Check(pending.size() == 1 &&
+                          pending[0].dir == (flipped ? (direction ? Dir::Out : Dir::In)
+                                                     : (direction ? Dir::In : Dir::Out)) &&
+                          pending[0].key.local.b[0] == (flipped ? 198 : 192) &&
+                          pending[0].key.remote.b[0] == (flipped ? 192 : 198) &&
+                          pending[0].key.lport == (flipped ? 53 : 41000) &&
+                          pending[0].key.rport == (flipped ? 41000 : 53),
+                      "Ndis direction or endpoints were not normalized before rule matching");
+                Rule rule;
+                rule.scope = RuleScope::Interface;
+                rule.action = RuleAction::Block;
+                rule.conds = CondProto | CondDirection | CondLocalAddr | CondRemoteAddr |
+                             CondLocalPort | CondRemotePort;
+                rule.proto = Proto::Udp;
+                rule.dir = Dir::In;
+                rule.localAddrs = {{IpFromRaw(event.remote_ip), -1}};
+                rule.remoteAddrs = {{IpFromRaw(event.local_ip), -1}};
+                rule.localPorts = {{53, 53}};
+                rule.remotePorts = {{41000, 41000}};
+                Check(RuleStore::MatchesRuleConditions(rule, pending[0].ToQuery()) ==
+                          (flipped && direction == 0),
+                      "Ndis rule used raw direction or endpoints");
+                flows.AddNdisBandwidthBatch(event.protocol, &bandwidth, 1, event.interface_index);
+                FlowStore::View view;
+                flows.Take(view);
+                const auto group = view.processes.find(TrafficGroupKey::Ndis(event.interface_index));
+                Check(group != view.processes.end() && group->second.connections.size() == 1,
+                      "Ndis bandwidth and verdict events used different tuples");
+                const auto& connection = group->second.connections.begin()->second;
+                Check(connection.driver && connection.driver->sent == (flipped ? 23u : 11u) &&
+                          connection.driver->recv == (flipped ? 11u : 23u),
+                      "Ndis transmitted and received counters were not swapped");
+                Check(host.AnswerOnce(pending[0].id, RuleAction::Allow), "cannot settle Ndis test request");
+            };
+            if (ipv6) check(Native::ConnectionV6{}, Native::BandwidthV6{});
+            else check(Native::ConnectionV4{}, Native::BandwidthV4{});
+        }
+    }
+    Rule block;
+    block.scope = RuleScope::Interface;
+    block.appPath = name;
+    block.action = RuleAction::Block;
+    block.conds = CondProto | CondDirection | CondLocalPort | CondRemotePort;
+    block.proto = Proto::Udp;
+    block.dir = Dir::In;
+    block.localPorts = {{53, 53}};
+    block.remotePorts = {{41000, 41000}};
+    rules.Add(block);
+    ndisVerdicts.clear();
+    auto filtered = NdisEvent(id++);
+    filtered.direction = 0;
+    guest.HandleNdis(filtered, nullptr, 0);
+    Check(ndisVerdicts.size() == 1 && ndisVerdicts[0].first == filtered.id &&
+              ndisVerdicts[0].second == Native::Verdict::Drop,
+          "interface rule did not block the reversed incoming direction");
+    filtered.id = id++;
+    filtered.direction = 1;
+    guest.HandleNdis(filtered, nullptr, 0);
+    std::vector<AskRequest> opposite;
+    host.TakePending(opposite);
+    Check(opposite.size() == 1 && opposite[0].dir == Dir::Out && ndisVerdicts.size() == 1,
+          "interface rule blocked the opposite reversed direction");
+    Check(host.AnswerOnce(opposite[0].id, RuleAction::Allow), "cannot settle opposite Ndis request");
+
+    // Для протоколов без отдельной статистики байты берутся из события пакета.
+    flows.Reset();
+    auto icmp = NdisEvent(id++);
+    icmp.protocol = ProtoNumber(Proto::Icmp);
+    icmp.direction = 0;
+    icmp.local_port = icmp.remote_port = 0;
+    const std::vector<uint8_t> packet{
+        0x45, 0, 0, 32, 0, 0, 0, 0, 64, 1, 0, 0,
+        192, 0, 2, 10, 198, 51, 100, 20,
+        8, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4
+    };
+    guest.HandleNdis(icmp, packet.data(), packet.size());
+    std::vector<AskRequest> icmpPending;
+    host.TakePending(icmpPending);
+    FlowStore::View icmpView;
+    flows.Take(icmpView);
+    const auto icmpGroup = icmpView.processes.find(TrafficGroupKey::Ndis(index));
+    Check(icmpPending.size() == 1 && icmpPending[0].dir == Dir::In &&
+              icmpGroup != icmpView.processes.end() && icmpGroup->second.connections.size() == 1,
+          "reversed Ndis packet was not accounted");
+    const auto& icmpConnection = icmpGroup->second.connections.begin()->second;
+    Check(icmpConnection.driver && icmpConnection.driver->sent == 0 && icmpConnection.driver->recv == 4,
+          "reversed Ndis packet bytes used the original direction");
+    Check(host.AnswerOnce(icmpPending[0].id, RuleAction::Allow), "cannot settle Ndis ICMP request");
+
+    DriverVerdictSession hostSession;
+    captureSession = &hostSession;
+    host.BeginDriverSession(hostSession.Begin());
+    pmkext::ConnectionFixedV4 hostEvent{};
+    hostEvent.external_connection_id = id++;
+    hostEvent.interface_index = index;
+    hostEvent.process_id = GetCurrentProcessId();
+    hostEvent.direction = 1;
+    hostEvent.protocol = ProtoNumber(Proto::Udp);
+    hostEvent.payload_layer = 3;
+    hostEvent.local_ip[0] = 192;
+    hostEvent.remote_ip[0] = 198;
+    hostEvent.local_port = 41000;
+    hostEvent.remote_port = 53;
+    host.HandleV4(hostEvent, nullptr, 0);
+    std::vector<AskRequest> hostPending;
+    host.TakePending(hostPending);
+    Check(hostPending.size() == 1 && hostPending[0].dir == Dir::In &&
+              hostPending[0].key.local.b[0] == 192 && hostPending[0].key.remote.b[0] == 198 &&
+              hostPending[0].key.lport == 41000 && hostPending[0].key.rport == 53,
+          "Ndis preference changed a Portmaster event");
+    Check(host.AnswerOnce(hostPending[0].id, RuleAction::Allow), "cannot settle host test request");
+    host.EndDriverSession(hostSession.End());
+    captureSession = nullptr;
+    guest.EndDriverSession(session.End());
+    host.Detach();
+    // При возврате обработки службе настройки перечитываются после работы окна.
+    host.Attach(&rules, nullptr, IngestMode::Service, FirewallPolicy::AllowAll);
+    Check(Settings::SetBool(setting.c_str(), false) && watcher.ReverseNdisTraffic(index) &&
+              guest.ReloadServiceRules(L":memory:") && !watcher.ReverseNdisTraffic(index),
+          "Ndis service fallback used the desktop's old direction preference");
+    host.Detach();
+    ndisCaptureSession = nullptr;
+    Check(Settings::Remove(setting.c_str()) && watcher.Refresh(), "cannot remove Ndis test preference");
+    flows.Reset();
+    flows.Enable(enabled);
+}
+
 void TestNdisIntegration() {
     size_t count = 0;
     const UiLangInfo* languages = UiLangs(count);
     for (size_t i = 0; i < count; ++i)
         for (UINT id : {IDS_INTERFACE_UNKNOWN, IDS_INTERFACE_DESC, IDS_SETTINGS_TAB_INTERFACES,
-                        IDS_INTERFACE_EXCLUDE_TRANSIT, IDS_INTERFACE_EXCLUDE_SAVE_ERROR,
+                        IDS_INTERFACE_EXCLUDE_TRANSIT, IDS_INTERFACE_REVERSE_TRAFFIC, IDS_INTERFACE_EXCLUDE_SAVE_ERROR,
                         IDS_INTERFACE_EXCLUDE_APPLY_ERROR,
                         IDS_INTERFACE_INACTIVE, IDS_INTERFACE_RULE, IDS_INTERFACE_COLUMN,
                         IDS_INTERFACE_STATS_FMT, IDS_INTERFACE_DELETE_FMT, IDS_DEBUG_INTERFACE_CANDIDATES})
@@ -812,6 +986,7 @@ void TestNdisIntegration() {
     TestNdisPolicyAndVerdictRouting();
     TestNdisServicePolicyReload();
     TestNdisCallbacksAndSourceSessions();
+    TestNdisReverseTraffic();
     TestNdisPayloadTraffic();
 }
 

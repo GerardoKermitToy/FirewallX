@@ -262,5 +262,6 @@
 #define IDS_INTERFACE_EXCLUDE_APPLY_ERROR            2189
 #define IDS_APP_INTERFACE_BLOCK_OTHERS               2190
 #define IDS_APP_INTERFACE_OTHER_BLOCKED              2191
+#define IDS_INTERFACE_REVERSE_TRAFFIC                2192
 
 #endif
