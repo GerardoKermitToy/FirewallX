@@ -191,6 +191,8 @@
 #define IDS_PRESET_VMWARE                 2282
 #define IDS_PRESET_RULE_LOOPBACK_TCP_IPV4 2283
 #define IDS_PRESET_RULE_LOOPBACK_TCP_IPV6 2284
+#define IDS_PRESET_VISUAL_STUDIO_HTTPS    2285
+#define IDS_PRESET_VISUAL_STUDIO_WEB      2286
 
 /* Группы интерфейсов; все переводы также в RulePresets.rc. */
 #define IDS_INTERFACE_UNKNOWN             2110

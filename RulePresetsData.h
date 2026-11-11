@@ -466,6 +466,8 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_YANDEX_DISK, L"YandexDisk4.exe", yandexDisk},
     {IDS_PRESET_MSI_INSTALLER, L"msiexec.exe", httpOnly, Host::AppService, L"msiserver"},
     {IDS_PRESET_WEB_TOOLS, L"curl.exe;wget.exe;winget.exe;code.exe", web},
+    {IDS_PRESET_VISUAL_STUDIO_HTTPS, L"devenv.exe", httpsOnly},
+    {IDS_PRESET_VISUAL_STUDIO_WEB, L"devenv.exe", httpsAndHttp},
     {IDS_PRESET_WINDOWS_PACKAGE_MANAGER, L"windowspackagemanagerserver.exe", systemWeb},
     {IDS_PRESET_MICROSOFT_STORE, L"winstore.app.exe", systemWeb},
     {IDS_PRESET_IGMP, L"", igmp, Host::PostAppPidZero},

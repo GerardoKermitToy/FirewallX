@@ -178,7 +178,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_LOOPBACK_TCP_IPV6; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_VISUAL_STUDIO_WEB; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -1283,6 +1283,94 @@ void TestApplicationSuggestions() {
         choices = RulePresets::Suggest(Request(std::wstring(L"C:\\Apps\\") + file, proto, port));
         ChoiceOf(choices, title);
     }
+}
+
+void TestVisualStudioPresets() {
+    const UiLang previous = CurrentUiLang();
+    SetUiLang(UiLang::English);
+    const std::wstring path = L"C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\Common7\\IDE\\devenv.exe";
+    AskRequest request = Request(path, Proto::Tcp, 443, L"198.51.100.25");
+    request.key.lport = 52000;
+    request.conditionFlags = 1;
+    request.interfaceName = std::make_shared<const std::wstring>(L"Captured interface");
+    const auto choices = RulePresets::Suggest(request);
+    Check(choices.size() == 2 && choices.front().titleId == IDS_PRESET_VISUAL_STUDIO_HTTPS,
+          "Visual Studio HTTPS must offer the secure profile first");
+    const auto& secure = ChoiceOf(choices, IDS_PRESET_VISUAL_STUDIO_HTTPS);
+    const auto& web = ChoiceOf(choices, IDS_PRESET_VISUAL_STUDIO_WEB);
+    Check(secure.title == L"Visual Studio: HTTPS" && web.title == L"Visual Studio: HTTPS / HTTP" &&
+          secure.rules.size() == 1 && web.rules.size() == 2,
+          "Visual Studio presets lost their titles or rule counts");
+    for (const auto& [rule, port] : {
+            std::pair{&secure.rules[0], uint16_t{443}},
+            std::pair{&web.rules[0], uint16_t{443}},
+            std::pair{&web.rules[1], uint16_t{80}}}) {
+        Check(rule->scope == RuleScope::App && rule->appPath == path &&
+              rule->action == RuleAction::Allow && rule->proto == Proto::Tcp &&
+              rule->dir == Dir::Out && rule->conds == (CondProto | CondDirection | CondRemotePort) &&
+              rule->remotePorts.size() == 1 && rule->remotePorts[0].from == port &&
+              rule->remotePorts[0].to == port && rule->localPorts.empty() &&
+              rule->remoteAddrs.empty() && rule->localAddrs.empty() && rule->services.empty() &&
+              rule->interfaceName.empty() && rule->conditionFlags == 0 &&
+              !rule->autoName && !rule->name.empty(),
+              "Visual Studio rule lost a condition or pinned a captured endpoint");
+        AskRequest flow = request;
+        flow.key.rport = port;
+        Check(RuleStore::MatchesRule(*rule, flow.ToQuery()),
+              "Visual Studio rule did not match its port");
+        flow.key.remote = Ip(L"203.0.113.33");
+        flow.key.local = Ip(L"10.20.30.40");
+        flow.key.lport = 60000;
+        flow.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
+        flow.conditionFlags.reset();
+        Check(RuleStore::MatchesRule(*rule, flow.ToQuery()),
+              "Visual Studio rule depends on a transient endpoint or interface");
+    }
+    AskRequest changed = request;
+    changed.key.rport = 80;
+    const auto httpChoices = RulePresets::Suggest(changed);
+    Check(httpChoices.size() == 1 && httpChoices[0].titleId == IDS_PRESET_VISUAL_STUDIO_WEB &&
+          !RuleStore::MatchesRule(secure.rules[0], changed.ToQuery()),
+          "Visual Studio HTTP must offer only the web preset");
+    for (const auto& [proto, port] : {
+            std::pair{Proto::Udp, uint16_t{443}}, std::pair{Proto::Udp, uint16_t{80}},
+            std::pair{Proto::Tcp, uint16_t{8080}}, std::pair{Proto::Udp, uint16_t{53}}}) {
+        changed = request;
+        changed.key.proto = proto;
+        changed.key.rport = port;
+        Check(RulePresets::Suggest(changed).empty(), "Visual Studio preset accepted an unrelated protocol or port");
+    }
+    changed = request;
+    changed.appPath = L"D:\\Apps\\Visual Studio\\Common7\\IDE\\DEVENV.EXE";
+    Check(RulePresets::Suggest(changed).size() == 2 &&
+          !RuleStore::MatchesRule(secure.rules[0], changed.ToQuery()),
+          "Visual Studio filename matching or rule path scope changed");
+    for (const wchar_t* filename : {L"devenv.com", L"devenv-helper.exe", L"mydevenv.exe"}) {
+        changed.appPath = std::wstring(L"C:\\Apps\\") + filename;
+        Check(RulePresets::Suggest(changed).empty(), "Visual Studio preset matched another executable");
+    }
+    changed = request;
+    changed.ownerAmbiguous = true;
+    Check(RulePresets::Suggest(changed).empty(), "ambiguous owner got a Visual Studio preset");
+
+    RuleStore store;
+    Check(RulePresets::Apply(store, request, secure.rules) == 1 &&
+          RulePresets::Apply(store, request, web.rules) == 1 && store.Count() == 2,
+          "overlapping Visual Studio presets duplicated the HTTPS rule");
+    const uint64_t version = store.version();
+    size_t count = 0;
+    const UiLangInfo* languages = UiLangs(count);
+    for (size_t i = 0; i < count; ++i) {
+        SetUiLang(languages[i].lang);
+        const auto translated = RulePresets::Suggest(request);
+        const auto& localized = ChoiceOf(translated, IDS_PRESET_VISUAL_STUDIO_WEB);
+        Check(localized.title == LoadStringRes(IDS_PRESET_VISUAL_STUDIO_WEB) &&
+              localized.rules.size() == 2 &&
+              RulePresets::Apply(store, request, localized.rules) == 0 &&
+              store.Count() == 2 && store.version() == version,
+              "localized Visual Studio preset lost its title or duplicated rules");
+    }
+    SetUiLang(previous);
 }
 
 void TestIgmpPreset() {
@@ -7606,6 +7694,7 @@ int main(int argc, char** argv) {
         TestAutomaticRuleNames();
         TestAddressListRuleNames();
         TestApplicationSuggestions();
+        TestVisualStudioPresets();
         TestIgmpPreset();
         TestIgmpInboundPreset();
         TestStoreAppPresets(L"C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.29.379.0_x64__8wekyb3d8bbwe\\WindowsPackageManagerServer.exe",

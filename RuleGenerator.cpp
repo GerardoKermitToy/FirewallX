@@ -171,6 +171,7 @@ Result Scan(const std::atomic_bool& cancel, const Progress& progress) {
     std::vector<std::wstring> paths;
     std::unordered_set<std::wstring> pathKeys;
     const auto add = [&](const std::wstring& raw) {
+        if (RulePresets::ExcludedFromGeneration(raw)) return;
         std::wstring path = FullPath(raw);
         if (path.empty() || !IsFile(path)) return;
         if (pathKeys.insert(FoldCaseCopy(path)).second) paths.push_back(std::move(path));
@@ -245,7 +246,9 @@ Result Scan(const std::atomic_bool& cancel, const Progress& progress) {
         L"Dropbox\\Client\\Dropbox.exe", L"Google\\Drive File Stream\\*\\GoogleDriveFS.exe",
         L"PuTTY\\putty.exe", L"WinSCP\\WinSCP.exe", L"Microsoft OneDrive\\OneDrive.exe",
         L"Microsoft OneDrive\\*\\OneDrive.Sync.Service.exe",
-        L"Microsoft VS Code\\Code.exe", L"Git\\cmd\\git.exe", L"Git\\mingw64\\libexec\\git-core\\git-remote-https.exe",
+        L"Microsoft VS Code\\Code.exe", L"Microsoft Visual Studio\\*\\*\\Common7\\IDE\\devenv.exe",
+        L"Microsoft Visual Studio *\\Common7\\IDE\\devenv.exe",
+        L"Git\\cmd\\git.exe", L"Git\\mingw64\\libexec\\git-core\\git-remote-https.exe",
         L"Microsoft Office\\root\\Office16\\EXCEL.EXE", L"Microsoft Office\\root\\Office16\\OUTLOOK.EXE",
         L"Microsoft Office\\root\\Office16\\ONENOTE.EXE", L"Microsoft Office\\root\\Office16\\MSACCESS.EXE",
         L"NVIDIA Corporation\\NvContainer\\nvcontainer.exe", L"NVIDIA Corporation\\Display.NvContainer\\nvdisplay.container.exe"
@@ -310,10 +313,12 @@ Result VerifyCandidates(const std::vector<std::wstring>& paths,
     std::vector<std::wstring> files;
     std::unordered_set<std::wstring> fileKeys;
     for (const auto& path : paths)
-        if (fileKeys.insert(FoldCaseCopy(path)).second) files.push_back(path);
+        if (!RulePresets::ExcludedFromGeneration(path) &&
+            fileKeys.insert(FoldCaseCopy(path)).second) files.push_back(path);
     const size_t imageCount = files.size();
     for (const auto& service : services)
-        if (!service.dll.empty() && fileKeys.insert(FoldCaseCopy(service.dll)).second)
+        if (!RulePresets::ExcludedFromGeneration(service.image) && !service.dll.empty() &&
+            fileKeys.insert(FoldCaseCopy(service.dll)).second)
             files.push_back(service.dll);
     std::unordered_map<std::wstring, bool> trusted;
     if (progress) progress(0, files.size());
@@ -348,7 +353,7 @@ Result VerifyCandidates(const std::vector<std::wstring>& paths,
             result.files.clear();
             return result;
         }
-        if (!trusted[FoldCaseCopy(path)]) continue;
+        if (RulePresets::ExcludedFromGeneration(path) || !trusted[FoldCaseCopy(path)]) continue;
         std::vector<ServiceEntry> verified;
         for (const auto& service : services)
             if (EqualNoCase(service.image, path) &&

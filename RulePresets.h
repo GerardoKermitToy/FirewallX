@@ -25,6 +25,7 @@ size_t ApplySelected(RuleStore& store, const AskRequest& request, std::vector<Ru
 // Полные шаблоны для обнаруженных файлов и проверенных установленных служб.
 // Условия конкретного соединения и резервное правило для всего svchost не используются.
 std::vector<std::wstring> Executables();
+bool ExcludedFromGeneration(std::wstring_view path);
 bool MayUseService(std::wstring_view executable, std::wstring_view service);
 std::vector<Rule> Generate(const std::wstring& path, const std::vector<ServiceEntry>& services);
 // Системные правила IGMP для PID 0 не связаны с исполняемым файлом.

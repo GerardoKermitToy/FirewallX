@@ -98,6 +98,8 @@ struct TempDirectory {
     }
     ~TempDirectory() {
         for (const wchar_t* name : { L"chrome.exe", L"msedge.exe", L"curl.exe", L"unknown.exe",
+                                     L"devenv.exe", L"winget.exe", L"wget.exe", L"pwsh.exe",
+                                     L"powershell.exe", L"python.exe", L"python3.exe", L"perl.exe",
                                      L"CopilotApp.exe", L"explorer.exe", L"MpCmdRun.exe",
                                      L"Discord.exe", L"obs64.exe", L"OneDrive.exe",
                                      L"OneDrive.Sync.Service.exe", L"OneDriveUpdaterService.exe",
@@ -986,6 +988,96 @@ void GeneratedRules(const std::wstring& signedPath, const std::wstring& unsigned
               "generation unnecessarily verified a DLL of an untrusted host");
 }
 
+void GeneratedExecutableSelection(const std::wstring& systemExe) {
+    TempDirectory dir;
+    const wchar_t* excluded[] = {
+        L"CURL.EXE", L"wget.exe", L"PWSH.exe", L"powershell.exe",
+        L"PYTHON.exe", L"python3.exe", L"Perl.exe"
+    };
+    std::vector<std::wstring> candidates;
+    const auto executables = RulePresets::Executables();
+    for (const wchar_t* name : excluded) {
+        const std::wstring path = dir.File(name);
+        CheckAuto(CopyFileW(systemExe.c_str(), path.c_str(), FALSE), "cannot copy excluded executable");
+        candidates.push_back(path);
+        CheckAuto(RulePresets::ExcludedFromGeneration(path) && RulePresets::Generate(path, {}).empty() &&
+                  std::none_of(executables.begin(), executables.end(),
+                      [&](const std::wstring& item) { return EqualNoCase(item, name); }),
+                  "excluded executable was retained in generation");
+    }
+    CheckAuto(!RulePresets::ExcludedFromGeneration(L"C:\\curl.exe\\winget.exe") &&
+              !RulePresets::ExcludedFromGeneration(L"C:\\Apps\\mycurl.exe") &&
+              !RulePresets::ExcludedFromGeneration(L"C:\\Apps\\python3.exe.backup"),
+              "generation excluded a different executable");
+    for (const wchar_t* name : {L"curl.exe", L"wget.exe"}) {
+        AskRequest request;
+        request.appPath = dir.File(name);
+        request.key.proto = Proto::Tcp;
+        request.key.rport = 443;
+        request.dir = Dir::Out;
+        CheckAuto(!RulePresets::Suggest(request).empty(),
+                  "generation exclusion removed a manual preset");
+    }
+
+    const std::wstring visualStudio = dir.File(L"devenv.exe");
+    const std::wstring winget = dir.File(L"winget.exe");
+    CheckAuto(CopyFileW(systemExe.c_str(), visualStudio.c_str(), FALSE) &&
+              CopyFileW(systemExe.c_str(), winget.c_str(), FALSE), "cannot copy allowed executables");
+    candidates.push_back(visualStudio);
+    candidates.push_back(winget);
+    CheckAuto(std::any_of(executables.begin(), executables.end(), [](const std::wstring& item) {
+                  return EqualNoCase(item, L"devenv.exe");
+              }) && std::any_of(executables.begin(), executables.end(), [](const std::wstring& item) {
+                  return EqualNoCase(item, L"winget.exe");
+              }), "generation omitted an allowed executable");
+
+    ServiceEntry excludedService;
+    excludedService.name = L"ExcludedService";
+    const RuleGenerator::ServiceCandidate service{excludedService, candidates.front(), systemExe};
+    std::atomic_bool cancel{false};
+    size_t total = 0, completed = 0;
+    const auto result = RuleGenerator::VerifyCandidates(candidates, {service}, cancel,
+        [&](size_t done, size_t count) { completed = done; total = count; });
+    CheckAuto(!result.cancelled && total == 2 && completed == 2 && result.files.size() == 2 &&
+              std::any_of(result.rules.begin(), result.rules.end(), [&](const Rule& rule) {
+                  return EqualNoCase(rule.appPath, winget);
+              }) && std::none_of(result.rules.begin(), result.rules.end(), [](const Rule& rule) {
+                  return RulePresets::ExcludedFromGeneration(rule.appPath);
+              }), "generation verified excluded files or omitted an allowed executable");
+
+    RuleStore retained;
+    Rule existing;
+    existing.scope = RuleScope::App;
+    existing.appPath = candidates.front();
+    existing.action = RuleAction::Block;
+    existing.enabled = false;
+    const uint64_t existingId = retained.Add(existing);
+    CheckAuto(RulePresets::ApplyGenerated(retained, result.rules) > 0 &&
+              retained.Get(existingId, existing) && !existing.enabled &&
+              existing.action == RuleAction::Block && existing.priority == 0 &&
+              retained.ForApp(candidates.front()).size() == 1,
+              "generation changed an existing rule for an excluded executable");
+
+    std::vector<Rule> visualRules;
+    for (const Rule& rule : result.rules)
+        if (EqualNoCase(rule.appPath, visualStudio)) visualRules.push_back(rule);
+    CheckAuto(visualRules.size() == 3 && std::all_of(visualRules.begin(), visualRules.end(),
+        [](const Rule& rule) {
+            return rule.scope == RuleScope::App && rule.action == RuleAction::Allow &&
+                rule.proto == Proto::Tcp && rule.dir == Dir::Out &&
+                rule.conds == (CondProto | CondDirection | CondRemotePort);
+        }), "generation omitted Visual Studio templates or changed their restrictions");
+    RuleStore store;
+    CheckAuto(RulePresets::ApplyGenerated(store, visualRules) == 2 &&
+              RulePresets::ApplyGenerated(store, visualRules) == 0 && store.Count() == 2,
+              "Visual Studio generation did not deduplicate the two profiles");
+    for (uint16_t port : {uint16_t{80}, uint16_t{443}})
+        CheckAuto(std::any_of(visualRules.begin(), visualRules.end(), [&](const Rule& rule) {
+            return rule.remotePorts.size() == 1 && rule.remotePorts.front().from == port &&
+                   rule.remotePorts.front().to == port;
+        }), "Visual Studio generation omitted a template port");
+}
+
 void GenerationDiscovery() {
     std::atomic_bool cancel{false};
     size_t discovered = 0;
@@ -1056,9 +1148,15 @@ int main(int argc, char** argv) {
         CheckAuto(!result.cancelled && total > 0 && scanned == total && !result.rules.empty() &&
                   std::count_if(result.rules.begin(), result.rules.end(), [](const Rule& rule) {
                       return rule.scope == RuleScope::PostApp && rule.proto == ProtoFromNumber(2);
-                  }) == 2, "real system generation scan failed or omitted IGMP");
+                  }) == 2 && std::none_of(result.rules.begin(), result.rules.end(), [](const Rule& rule) {
+                      return RulePresets::ExcludedFromGeneration(rule.appPath);
+                  }), "real system generation scan failed, omitted IGMP, or included excluded files");
+        const auto visualRules = std::count_if(result.rules.begin(), result.rules.end(), [](const Rule& rule) {
+            return EqualNoCase(rule.appName, L"devenv.exe");
+        });
         std::cout << "Candidates checked: " << total << ", trusted files: " << result.files.size()
-                  << ", generated rules: " << result.rules.size() << '\n';
+                  << ", generated rules: " << result.rules.size()
+                  << ", Visual Studio rules: " << visualRules << '\n';
         return 0;
     }
     TempDirectory dir;
@@ -1069,11 +1167,13 @@ int main(int argc, char** argv) {
     const std::wstring signedPath = dir.File(L"chrome.exe");
     const std::wstring otherSignedPath = dir.File(L"msedge.exe");
     const std::wstring unsignedPath = dir.File(L"curl.exe");
+    const std::wstring unsignedGeneratedPath = dir.File(L"winget.exe");
     const std::wstring unknownPath = dir.File(L"unknown.exe");
     CheckAuto(CopyFileW(systemExe.c_str(), signedPath.c_str(), FALSE) &&
               CopyFileW(systemExe.c_str(), otherSignedPath.c_str(), FALSE) &&
               CopyFileW(systemExe.c_str(), unknownPath.c_str(), FALSE) &&
-              CopyFileW(self, unsignedPath.c_str(), FALSE), "cannot copy test executables");
+              CopyFileW(self, unsignedPath.c_str(), FALSE) &&
+              CopyFileW(self, unsignedGeneratedPath.c_str(), FALSE), "cannot copy test executables");
     for (const wchar_t* name : {L"CopilotApp.exe", L"explorer.exe", L"MpCmdRun.exe",
                                 L"Discord.exe", L"obs64.exe", L"OneDrive.exe",
                                 L"OneDrive.Sync.Service.exe", L"OneDriveUpdaterService.exe", L"msiexec.exe",
@@ -1084,7 +1184,8 @@ int main(int argc, char** argv) {
         CheckAuto(CopyFileW(systemExe.c_str(), dir.File(name).c_str(), FALSE),
                   "cannot copy captured-preset test executable");
     GeneratedIgmp(dir.File(L"generation.db"));
-    GeneratedRules(signedPath, unsignedPath, dir.File(L"TeamViewer_Service.exe"));
+    GeneratedRules(signedPath, unsignedGeneratedPath, dir.File(L"TeamViewer_Service.exe"));
+    GeneratedExecutableSelection(systemExe);
     GenerationDiscovery();
     GenerationDialog();
     std::wstring error;

@@ -350,6 +350,11 @@ size_t Apply(RuleStore& store, const AskRequest& request, const std::vector<Rule
     return changed;
 }
 
+bool ExcludedFromGeneration(std::wstring_view path) {
+    return Listed(L"curl.exe;wget.exe;pwsh.exe;powershell.exe;python.exe;python3.exe;perl.exe",
+                  FileName(path));
+}
+
 std::vector<std::wstring> Executables() {
     std::vector<std::wstring> result;
     for (const Data::Preset& preset : Data::presets) {
@@ -357,7 +362,8 @@ std::vector<std::wstring> Executables() {
         while (!names.empty()) {
             const size_t end = names.find(L';');
             const auto name = names.substr(0, end);
-            if (!name.empty() && std::none_of(result.begin(), result.end(),
+            if (!name.empty() && !ExcludedFromGeneration(name) &&
+                std::none_of(result.begin(), result.end(),
                     [&](const std::wstring& item) { return EqualNoCase(item, name); }))
                 result.emplace_back(name);
             if (end == std::wstring_view::npos) break;
@@ -368,6 +374,7 @@ std::vector<std::wstring> Executables() {
 }
 
 bool MayUseService(std::wstring_view executable, std::wstring_view service) {
+    if (!executable.empty() && ExcludedFromGeneration(executable)) return false;
     return std::any_of(std::begin(Data::presets), std::end(Data::presets),
         [&](const Data::Preset& preset) {
             const bool serviceHost = preset.host == Data::Host::Service ||
@@ -379,7 +386,7 @@ bool MayUseService(std::wstring_view executable, std::wstring_view service) {
 
 std::vector<Rule> Generate(const std::wstring& path, const std::vector<ServiceEntry>& services) {
     std::vector<Rule> result;
-    if (path.empty()) return result;
+    if (path.empty() || ExcludedFromGeneration(path)) return result;
     const std::wstring_view executable = FileName(path);
     AskRequest request;
     request.appPath = path;
