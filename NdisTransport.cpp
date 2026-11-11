@@ -69,7 +69,7 @@ void EndSession(uint64_t expected = 0) {
 // Формат raw pipe совпадает с FirewallXNdisFilter. Команды Portmaster сюда не попадают.
 RPC_STATUS ForwardCommand(void* context, const byte* data, unsigned long size) noexcept {
     auto& client = *static_cast<Client*>(context);
-    if (!data || !size) return ERROR_INVALID_DATA;
+    if (!data || !size) [[unlikely]] return ERROR_INVALID_DATA;
     if (data[0] == 1 && size == 10) {
         uint64_t id = 0;
         std::memcpy(&id, data + 1, sizeof(id));
@@ -115,7 +115,7 @@ bool ForwardRecord(ServiceRoute* route) {
     if (!route->local) {
         sent = route->server.SendRaw(route->record.data(),
             static_cast<unsigned long>(route->record.size())) == ERROR_SUCCESS;
-        if (!sent) {
+        if (!sent) [[unlikely]] {
             // Эта же запись обрабатывается локально уже по свежей политике.
             Events().ReloadServiceRules(route->rulesPath);
             route->local = true;
@@ -177,7 +177,7 @@ Client::Callbacks Callbacks(ServiceRoute* route = nullptr) {
 }
 
 RPC_STATUS ReceiveRecord(void*, const byte* data, unsigned long size) noexcept {
-    if (!data) return ERROR_INVALID_DATA;
+    if (!data) [[unlikely]] return ERROR_INVALID_DATA;
     return Client::DispatchRecord({ data, size }, Callbacks());
 }
 

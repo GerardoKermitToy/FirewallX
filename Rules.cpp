@@ -688,7 +688,7 @@ void RuleStore::RefreshInterfaces() const {
 
 void RuleStore::SyncInterfacesLocked() const {
     auto& watcher = net::SharedNetworkInterfaces();
-    if (interfaceSnapshotVersion_.load(std::memory_order_relaxed) == watcher.SnapshotVersion()) return;
+    if (interfaceSnapshotVersion_.load(std::memory_order_relaxed) == watcher.SnapshotVersion()) [[likely]] return;
     const auto snapshot = watcher.GetSnapshot();
     if (!snapshot) return;
     bool changed = SyncAppInterfacesLocked(snapshot);
@@ -1139,7 +1139,7 @@ bool RuleStore::PreferredInterfaceBlocked(const MatchQuery& query, uint64_t& mat
 
 void RuleStore::SyncProcessVersionLocked() const {
     const uint64_t current = processes_.version();
-    if (processVersion_.load(std::memory_order_relaxed) == current) return;
+    if (processVersion_.load(std::memory_order_relaxed) == current) [[likely]] return;
     ++version_;
     processVersion_.store(current, std::memory_order_release);
 }
@@ -1148,7 +1148,7 @@ uint64_t RuleStore::version() const {
     const bool interfacesChanged = interfaceSnapshotVersion_.load(std::memory_order_acquire) !=
         net::SharedNetworkInterfaces().SnapshotVersion();
     if (interfacesChanged || (inheritanceUsed_.load(std::memory_order_relaxed) &&
-        processVersion_.load(std::memory_order_relaxed) != processes_.version())) {
+        processVersion_.load(std::memory_order_relaxed) != processes_.version())) [[unlikely]] {
         std::lock_guard<std::mutex> lock(mtx_);
         SyncInterfacesLocked();
         if (inheritanceUsed_.load(std::memory_order_relaxed)) SyncProcessVersionLocked();
@@ -1158,7 +1158,7 @@ uint64_t RuleStore::version() const {
 
 uint64_t RuleStore::interfaceVersion() const {
     if (interfaceSnapshotVersion_.load(std::memory_order_acquire) !=
-        net::SharedNetworkInterfaces().SnapshotVersion()) RefreshInterfaces();
+        net::SharedNetworkInterfaces().SnapshotVersion()) [[unlikely]] RefreshInterfaces();
     return interfaceVersion_.load(std::memory_order_relaxed);
 }
 

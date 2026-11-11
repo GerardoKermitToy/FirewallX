@@ -253,11 +253,11 @@ public:
             DWORD bytes = 0;
             const BOOL started = ReadFile(device_, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes, &ov);
             DWORD error = Finish(device_, ov, started, bytes, stop_event_, deadline);
-            if (stopping_.load() || error == ERROR_TIMEOUT) break;
-            if (error) return error;
-            if (bytes == 0) return ERROR_INVALID_DATA; // Never spin on an old/nonblocking SYS.
+            if (stopping_.load() || error == ERROR_TIMEOUT) [[unlikely]] break;
+            if (error) [[unlikely]] return error;
+            if (bytes == 0) [[unlikely]] return ERROR_INVALID_DATA; // Never spin on an old/nonblocking SYS.
             error = stream.Commit(bytes, callbacks, &stopping_);
-            if (error) return error;
+            if (error) [[unlikely]] return error;
         }
         return ERROR_SUCCESS;
     }
@@ -265,7 +265,7 @@ public:
     // Один полный wire-пакет без обращения к устройству; размер зависит от типа записи.
     static DWORD DispatchRecord(Bytes record, const Callbacks& cb) {
         if (record.size() < 5 || ReadLe<uint32_t>(record.data() + 1) != record.size() - 5 ||
-            !ValidBodySize(record[0], record.size() - 5)) return ERROR_INVALID_DATA;
+            !ValidBodySize(record[0], record.size() - 5)) [[unlikely]] return ERROR_INVALID_DATA;
         return DispatchBody(record[0], record.subspan(5), cb);
     }
 
@@ -274,7 +274,7 @@ public:
     class Stream {
     public:
         std::span<uint8_t> Buffer() noexcept {
-            if (!data_ || failed_) return {};
+            if (!data_ || failed_) [[unlikely]] return {};
             if (capacity_ - tail_ < ReadSize && head_) {
                 const size_t pending = PendingBytes();
                 std::memmove(data_.get(), data_.get() + head_, pending);
@@ -285,20 +285,20 @@ public:
             return {data_.get() + tail_, available < ReadSize ? available : ReadSize};
         }
         DWORD Commit(size_t count, const Callbacks& cb, const std::atomic<bool>* stop = nullptr) {
-            if (!data_) return ERROR_NOT_ENOUGH_MEMORY;
-            if (failed_ || count > ReadSize || count > capacity_ - tail_) {
+            if (!data_) [[unlikely]] return ERROR_NOT_ENOUGH_MEMORY;
+            if (failed_ || count > ReadSize || count > capacity_ - tail_) [[unlikely]] {
                 failed_ = true; return ERROR_INVALID_DATA;
             }
             tail_ += count;
             while (PendingBytes() >= 5 && (!stop || !stop->load())) {
                 const uint8_t* p = data_.get() + head_;
                 const uint32_t body = ReadLe<uint32_t>(p + 1);
-                if (!ValidBodySize(p[0], body)) { failed_ = true; return ERROR_INVALID_DATA; }
+                if (!ValidBodySize(p[0], body)) [[unlikely]] { failed_ = true; return ERROR_INVALID_DATA; }
                 const size_t length = 5 + static_cast<size_t>(body);
                 if (PendingBytes() < length) {
                     if (length > capacity_) {
                         std::unique_ptr<uint8_t[]> grown{new (std::nothrow) uint8_t[length]};
-                        if (!grown) { failed_ = true; return ERROR_NOT_ENOUGH_MEMORY; }
+                        if (!grown) [[unlikely]] { failed_ = true; return ERROR_NOT_ENOUGH_MEMORY; }
                         const size_t pending = PendingBytes();
                         std::memcpy(grown.get(), p, pending);
                         data_ = std::move(grown);
@@ -309,7 +309,7 @@ public:
                     break;
                 }
                 const DWORD error = DispatchBody(p[0], {p + 5, body}, cb);
-                if (error) { failed_ = true; return error; }
+                if (error) [[unlikely]] { failed_ = true; return error; }
                 head_ += length;
             }
             if (head_ == tail_) head_ = tail_ = 0;
@@ -336,19 +336,19 @@ private:
     }
     template <class T> static DWORD DispatchConnection(Bytes body, void* context, ConnectionCallback<T> callback) {
         constexpr size_t prefix = sizeof(T) + sizeof(uint32_t);
-        if (body.size() < prefix) return ERROR_INVALID_DATA;
+        if (body.size() < prefix) [[unlikely]] return ERROR_INVALID_DATA;
         const auto* connection = reinterpret_cast<const T*>(body.data());
         const uint32_t size = ReadLe<uint32_t>(body.data() + sizeof(T));
         if (connection->direction > 1 || connection->payload_layer != 3 || size > MaxPayloadSize ||
-            size != body.size() - prefix) return ERROR_INVALID_DATA;
+            size != body.size() - prefix) [[unlikely]] return ERROR_INVALID_DATA;
         if (callback) callback(context, connection, body.data() + prefix, size);
         return ERROR_SUCCESS;
     }
     template <class T> static DWORD DispatchBandwidth(Bytes body, void* context, BandwidthCallback<T> callback) {
-        if (body.size() < 9) return ERROR_INVALID_DATA;
+        if (body.size() < 9) [[unlikely]] return ERROR_INVALID_DATA;
         const uint32_t interface_index = ReadLe<uint32_t>(body.data() + 1);
         const uint32_t count = ReadLe<uint32_t>(body.data() + 5);
-        if ((body.size() - 9) % sizeof(T) || count != (body.size() - 9) / sizeof(T)) return ERROR_INVALID_DATA;
+        if ((body.size() - 9) % sizeof(T) || count != (body.size() - 9) / sizeof(T)) [[unlikely]] return ERROR_INVALID_DATA;
         if (callback && count)
             callback(context, body[0], interface_index, reinterpret_cast<const T*>(body.data() + 9), count);
         return ERROR_SUCCESS;
@@ -356,7 +356,7 @@ private:
     static DWORD DispatchBody(uint8_t type, Bytes body, const Callbacks& cb) {
         switch (type) {
         case 0:
-            if (body.empty() || body.size() > 507 || body[0] < 1 || body[0] > 7) return ERROR_INVALID_DATA;
+            if (body.empty() || body.size() > 507 || body[0] < 1 || body[0] > 7) [[unlikely]] return ERROR_INVALID_DATA;
             if (cb.on_log) cb.on_log(cb.context, body[0], {reinterpret_cast<const char*>(body.data() + 1), body.size() - 1});
             return ERROR_SUCCESS;
         case 1: return DispatchConnection(body, cb.context, cb.on_connection_v4);

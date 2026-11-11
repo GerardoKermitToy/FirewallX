@@ -24,11 +24,11 @@ public:
     size_t Capacity() const noexcept { return capacity_; }
 
     bool Reserve(size_t required, size_t used = 0) noexcept {
-        if (required <= capacity_) return true;
-        if (used > capacity_) return false;
+        if (required <= capacity_) [[likely]] return true;
+        if (used > capacity_) [[unlikely]] return false;
         if (required <= BaselineCapacity) {
             baseline_ = static_cast<uint8_t*>(HeapAlloc(GetProcessHeap(), 0, BaselineCapacity));
-            if (!baseline_) return false;
+            if (!baseline_) [[unlikely]] return false;
             data_ = baseline_;
             capacity_ = BaselineCapacity;
             return true;
@@ -38,7 +38,7 @@ public:
             // После частичного уменьшения адреса ещё зарезервированы: возвращаем
             // commit без смены указателя и копирования уже принятого payload.
             if (target > reservedCapacity_) target = reservedCapacity_;
-            if (!VirtualAlloc(data_ + capacity_, target - capacity_, MEM_COMMIT, PAGE_READWRITE))
+            if (!VirtualAlloc(data_ + capacity_, target - capacity_, MEM_COMMIT, PAGE_READWRITE)) [[unlikely]]
                 return false;
             capacity_ = target;
             ResetUsage();
@@ -46,7 +46,7 @@ public:
         }
         auto* grown = static_cast<uint8_t*>(VirtualAlloc(
             nullptr, target, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        if (!grown) return false;
+        if (!grown) [[unlikely]] return false;
         if (used) std::memcpy(grown, data_, used);
         ReleaseLarge();
         data_ = grown;
@@ -55,7 +55,7 @@ public:
     }
 
     void RecordCompleted(size_t size) noexcept {
-        if (capacity_ <= BaselineCapacity) return;
+        if (capacity_ <= BaselineCapacity) [[likely]] return;
         if (size > capacity_ / kUnderusedRatio) {
             ResetUsage();
             return;

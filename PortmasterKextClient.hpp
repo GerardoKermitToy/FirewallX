@@ -820,7 +820,7 @@ public:
             dispatchBandwidth<BandwidthValueV6>(data, size, onBandwidthStatsV6);
             return;
         case InfoType::ProcessCreated: {
-            if (size % sizeof(ProcessCreated) || (size && !data)) return;
+            if (size % sizeof(ProcessCreated) || (size && !data)) [[unlikely]] return;
             const auto* values = reinterpret_cast<const ProcessCreated*>(data);
             const uint32_t count = size / sizeof(ProcessCreated);
             if (processes_->applyCreated(values, count) && onProcessCreated)
@@ -828,7 +828,7 @@ public:
             return;
         }
         case InfoType::ProcessTerminated: {
-            if (size % sizeof(ProcessTerminated) || (size && !data)) return;
+            if (size % sizeof(ProcessTerminated) || (size && !data)) [[unlikely]] return;
             const auto* values = reinterpret_cast<const ProcessTerminated*>(data);
             const uint32_t count = size / sizeof(ProcessTerminated);
             if (processes_->applyTerminated(values, count) && onProcessTerminated)
@@ -958,7 +958,7 @@ private:
             }
 
             errorStreak_ = 0;
-            if (read == 0) {                 // не крутим CPU впустую
+            if (read == 0) [[unlikely]] {    // не крутим CPU впустую
                 if (stopRequested(1)) break;
                 continue;
             }
@@ -1047,7 +1047,7 @@ private:
         size_t required = pending;
         if (pending >= 5)
             required = size_t(detail::load<uint32_t>(buffer_.Data() + head_ + 1)) + 5;
-        if (buffer_.NeedsTrim(required)) {
+        if (buffer_.NeedsTrim(required)) [[unlikely]] {
             if (pending && head_) std::memmove(buffer_.Data(), buffer_.Data() + head_, pending);
             head_ = 0;
             tail_ = pending;
