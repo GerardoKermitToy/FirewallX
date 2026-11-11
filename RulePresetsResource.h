@@ -185,6 +185,12 @@
 #define IDS_PRESET_PHOTOS                 2276
 #define IDS_PRESET_IGMP_IN                2277
 #define IDS_PRESET_WWA_HOST               2278
+#define IDS_PRESET_DHCP_CLIENT_PORTS      2279
+#define IDS_PRESET_RULE_DHCP_CLIENT_PORTS 2280
+#define IDS_PRESET_VMWARE_AUTHD           2281
+#define IDS_PRESET_VMWARE                 2282
+#define IDS_PRESET_RULE_LOOPBACK_TCP_IPV4 2283
+#define IDS_PRESET_RULE_LOOPBACK_TCP_IPV6 2284
 
 /* Группы интерфейсов; все переводы также в RulePresets.rc. */
 #define IDS_INTERFACE_UNKNOWN             2110

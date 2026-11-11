@@ -178,7 +178,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_WWA_HOST; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_LOOPBACK_TCP_IPV6; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -2415,6 +2415,24 @@ void TestRemoteAccessPresets() {
                                  IDS_PRESET_RULE_LOOPBACK_TCP, IDS_PRESET_RULE_TEAMVIEWER_TCP,
                                  IDS_PRESET_RULE_MDNS_IN_IPV4, IDS_PRESET_RULE_MDNS_OUT_IPV6,
                                  IDS_PRESET_RULE_MDNS_OUT_IPV4};
+    const Expected vmwareAuthdRules[] = {
+        {Proto::Tcp, Dir::Out, 0, 0, L"127.0.0.1", L"127.0.0.1"}
+    };
+    const Flow vmwareAuthdFlows[] = {
+        {Proto::Tcp, Dir::Out, 52693, 52694, L"127.0.0.1", L"127.0.0.1"}
+    };
+    const UINT vmwareAuthdNames[] = {IDS_PRESET_RULE_LOOPBACK_TCP_IPV4};
+    const Expected vmwareRules[] = {
+        {Proto::Tcp, Dir::Out, 0, 0, L"127.0.0.1", L"127.0.0.1"},
+        {Proto::Tcp, Dir::Out, 0, 0, L"::1", L"::1"}
+    };
+    const Flow vmwareFlows[] = {
+        {Proto::Tcp, Dir::Out, 52693, 52694, L"127.0.0.1", L"127.0.0.1"},
+        {Proto::Tcp, Dir::Out, 52695, 52696, L"::1", L"::1"}
+    };
+    const UINT vmwareNames[] = {IDS_PRESET_RULE_LOOPBACK_TCP_IPV4, IDS_PRESET_RULE_LOOPBACK_TCP_IPV6};
+    const std::wstring vmwareAuthdPath = L"C:\\Program Files\\VMware\\VMware Workstation\\vmware-authd.exe";
+    const std::wstring vmwarePath = L"C:\\Program Files\\VMware\\VMware Workstation\\vmware.exe";
     const std::wstring anyDeskPath = L"C:\\Program Files\\AnyDesk\\AnyDesk.exe";
     const std::wstring rustDeskPath = L"C:\\Program Files\\RustDesk\\RUSTDESK.EXE";
     const std::wstring clientPath = L"C:\\Program Files\\TeamViewer\\TeamViewer.exe";
@@ -2496,9 +2514,10 @@ void TestRemoteAccessPresets() {
                 Check(!offered(request, id) && !RuleStore::MatchesRule(preset.rules.front(), request.ToQuery()),
                       "service preset accepted missing, wrong or ambiguous service attribution");
             }
-            SetServices(request.pid, {L"teamviewer"});
+            const std::wstring foldedService = FoldCaseCopy(service);
+            SetServices(request.pid, {foldedService.c_str()});
             Check(offered(request, id) && RuleStore::MatchesRule(preset.rules.front(), request.ToQuery()),
-                  "TeamViewer service matching was case-sensitive");
+                  "service matching was case-sensitive");
             SetServices(request.pid, {service});
             changed = request;
             changed.process.reset();
@@ -2533,6 +2552,9 @@ void TestRemoteAccessPresets() {
     verify(rustDeskPath, IDS_PRESET_RUSTDESK, nullptr, rustDeskRules, rustDeskFlows, rustDeskNames);
     verify(clientPath, IDS_PRESET_TEAMVIEWER, nullptr, clientRules, clientFlows, clientNames);
     verify(servicePath, IDS_PRESET_TEAMVIEWER_SERVICE, L"TeamViewer", serviceRules, serviceFlows, serviceNames);
+    verify(vmwareAuthdPath, IDS_PRESET_VMWARE_AUTHD, L"VMAuthdService",
+           vmwareAuthdRules, vmwareAuthdFlows, vmwareAuthdNames);
+    verify(vmwarePath, IDS_PRESET_VMWARE, nullptr, vmwareRules, vmwareFlows, vmwareNames);
 
     AskRequest dns = makeFlow(anyDeskPath, anyDeskFlows[2]);
     const auto dnsChoices = RulePresets::Suggest(dns);
@@ -2634,6 +2656,51 @@ void TestRemoteAccessPresets() {
         changed = mdns;
         changed.key.proto = Proto::Tcp;
         Check(!offered(changed, IDS_PRESET_TEAMVIEWER_SERVICE), "service mDNS accepted TCP");
+    }
+    SetServices(service.pid, {});
+
+    for (size_t i = 0; i < 3; ++i) {
+        const bool authd = i == 0;
+        AskRequest loop = authd ? makeFlow(vmwareAuthdPath, vmwareAuthdFlows[0])
+                                : makeFlow(vmwarePath, vmwareFlows[i - 1]);
+        const UINT titleId = authd ? IDS_PRESET_VMWARE_AUTHD : IDS_PRESET_VMWARE;
+        SetServices(loop.pid, authd ? std::initializer_list<const wchar_t*>{L"VMAuthdService"}
+                                    : std::initializer_list<const wchar_t*>{});
+        loop.conditionFlags = 1;
+        loop.interfaceName = std::make_shared<const std::wstring>(L"Loopback Pseudo-Interface 1");
+        const auto loopChoices = RulePresets::Suggest(loop);
+        const auto& preset = ChoiceOf(loopChoices, titleId);
+        const Rule& rule = preset.rules[authd ? 0 : i - 1];
+        Check(!(rule.conds & (CondInterface | CondWfpFlags | CondRemotePort | CondLocalPort)) &&
+              rule.interfaceName.empty() && rule.conditionFlags == 0 &&
+              rule.remotePorts.empty() && rule.localPorts.empty(),
+              "VMware loopback rule pinned captured interface, flags or ports");
+        changed = loop;
+        changed.key.lport = 10000;
+        changed.key.rport = 60000;
+        changed.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
+        changed.conditionFlags.reset();
+        Check(offered(changed, titleId) && RuleStore::MatchesRule(rule, changed.ToQuery()),
+              "VMware loopback rule depended on captured interface, flags or ports");
+        for (const wchar_t* address : {L"127.0.0.2", L"192.0.2.10", L"::2",
+                                      i == 2 ? L"127.0.0.1" : L"::1"}) {
+            changed = loop;
+            changed.key.local = Ip(address);
+            Check(!offered(changed, titleId) && !RuleStore::MatchesRule(rule, changed.ToQuery()),
+                  "VMware loopback rule accepted another local address");
+            changed = loop;
+            changed.key.remote = Ip(address);
+            Check(!offered(changed, titleId) && !RuleStore::MatchesRule(rule, changed.ToQuery()),
+                  "VMware loopback rule accepted another remote address");
+        }
+        changed = loop;
+        changed.key.proto = Proto::Udp;
+        Check(!offered(changed, titleId) && !RuleStore::MatchesRule(rule, changed.ToQuery()),
+              "VMware loopback rule accepted UDP");
+        changed = loop;
+        changed.appPath = authd ? vmwarePath : vmwareAuthdPath;
+        Check(!offered(changed, titleId) && !RuleStore::MatchesRule(rule, changed.ToQuery()),
+              "VMware preset accepted the other executable");
     }
     SetServices(service.pid, {});
     SetUiLang(previous);
@@ -4390,6 +4457,89 @@ void TestIncomingDhcpPresets() {
           "repeated DHCP preset duplicated incoming rules");
 }
 
+void TestDhcpClientPortsPreset() {
+    const UiLang previous = CurrentUiLang();
+    SetUiLang(UiLang::English);
+    AskRequest request = Request(SystemDirFile(L"svchost.exe"), Proto::Udp, 67, L"192.168.69.254");
+    request.dir = Dir::In;
+    request.key.local = Ip(L"255.255.255.255");
+    request.key.lport = 68;
+    request.conditionFlags = 1;
+    request.interfaceName = std::make_shared<const std::wstring>(L"VMware Network Adapter VMnet8");
+    SetServices(request.pid, {L"Dhcp"});
+
+    const auto choices = RulePresets::Suggest(request);
+    const auto& preset = ChoiceOf(choices, IDS_PRESET_DHCP_CLIENT_PORTS);
+    Check(preset.rules.size() == 1 && preset.title.find(L"DHCPv4: UDP 68 / 67") != std::wstring::npos,
+          "DHCP client port preset lost its rule or title");
+    const Rule& rule = preset.rules.front();
+    Check(rule.scope == RuleScope::App && rule.appPath == request.appPath &&
+          rule.action == RuleAction::Allow && rule.proto == Proto::Udp && rule.dir == Dir::Unknown &&
+          rule.conds == (CondProto | CondService | CondRemotePort | CondLocalPort) &&
+          rule.remotePorts.size() == 1 && rule.remotePorts.front().from == 67 &&
+          rule.remotePorts.front().to == 67 && rule.localPorts.size() == 1 &&
+          rule.localPorts.front().from == 68 && rule.localPorts.front().to == 68 &&
+          rule.services.size() == 1 && rule.services.front().name == L"Dhcp" &&
+          rule.remoteAddrs.empty() && rule.localAddrs.empty() && rule.interfaceName.empty() &&
+          rule.conditionFlags == 0 && !rule.autoName && !rule.name.empty(),
+          "DHCP client rule did not preserve the selected conditions");
+
+    auto hasPreset = [](const AskRequest& candidate) {
+        const auto suggested = RulePresets::Suggest(candidate);
+        return std::any_of(suggested.begin(), suggested.end(), [](const auto& choice) {
+            return choice.titleId == IDS_PRESET_DHCP_CLIENT_PORTS;
+        });
+    };
+    for (Dir dir : {Dir::In, Dir::Out}) {
+        AskRequest other = request;
+        other.dir = dir;
+        other.key.remote = Ip(L"198.51.100.123");
+        other.key.local = Ip(L"10.2.3.4");
+        other.interfaceName = std::make_shared<const std::wstring>(L"Another adapter");
+        other.conditionFlags.reset();
+        Check(hasPreset(other) && RuleStore::MatchesRule(rule, other.ToQuery()),
+              "DHCP client rule pinned an address, interface, flag or direction");
+    }
+    AskRequest other = request;
+    other.key.rport = 68;
+    Check(!hasPreset(other) && !RuleStore::MatchesRule(rule, other.ToQuery()),
+          "DHCP client rule accepted another remote port");
+    other = request;
+    other.key.lport = 67;
+    Check(!hasPreset(other) && !RuleStore::MatchesRule(rule, other.ToQuery()),
+          "DHCP client rule accepted another local port");
+    other = request;
+    other.key.proto = Proto::Tcp;
+    Check(!hasPreset(other) && !RuleStore::MatchesRule(rule, other.ToQuery()),
+          "DHCP client rule accepted TCP");
+    other = request;
+    other.appPath = L"C:\\Downloads\\svchost.exe";
+    Check(!hasPreset(other) && !RuleStore::MatchesRule(rule, other.ToQuery()),
+          "DHCP client preset accepted a non-system executable");
+    other = request;
+    other.ownerAmbiguous = true;
+    Check(!hasPreset(other), "DHCP client preset guessed an ambiguous owner");
+    SetServices(request.pid, {L"Dnscache"});
+    Check(!hasPreset(request) && !RuleStore::MatchesRule(rule, request.ToQuery()),
+          "DHCP client rule accepted another service");
+    SetServices(request.pid, {L"Dhcp", L"Dnscache"});
+    Check(!hasPreset(request) && !RuleStore::MatchesRule(rule, request.ToQuery()),
+          "DHCP client preset guessed a service in a shared process");
+    SetServices(request.pid, {L"Dhcp"});
+
+    RuleStore store;
+    Check(RulePresets::Apply(store, request, preset.rules) == 1 && store.Count() == 1,
+          "DHCP client port rule was not applied");
+    const uint64_t version = store.version();
+    SetUiLang(UiLang::Russian);
+    const auto translated = RulePresets::Suggest(request);
+    Check(RulePresets::Apply(store, request,
+          ChoiceOf(translated, IDS_PRESET_DHCP_CLIENT_PORTS).rules) == 0 &&
+          store.Count() == 1 && store.version() == version,
+          "DHCP client rule was duplicated after a language change");
+    SetUiLang(previous);
+}
+
 void TestStoreServicePresets(const wchar_t* service, UINT titleId, const wchar_t* remoteAddress,
                              const wchar_t* localAddress, uint16_t localPort) {
     AskRequest request = Request(SystemDirFile(L"svchost.exe"), Proto::Tcp, 443, remoteAddress);
@@ -5076,6 +5226,9 @@ void TestServiceSuggestions() {
     request.key = MakeFlowKey(Proto::Udp, Ip(L"0.0.0.0"), Ip(L"255.255.255.255"), 68, 67);
     choices = RulePresets::Suggest(request);
     ChoiceOf(choices, IDS_PRESET_DHCP);
+    ChoiceOf(choices, IDS_PRESET_DHCP_CLIENT_PORTS);
+    Check(choices.front().titleId == IDS_PRESET_DHCP_CLIENT_PORTS,
+          "DHCP client port preset was not selected for automatic application");
     request.key = MakeFlowKey(Proto::Udp, Ip(L"fe80::10"), Ip(L"ff02::1:2"), 546, 547);
     choices = RulePresets::Suggest(request);
     ChoiceOf(choices, IDS_PRESET_DHCP);
@@ -7480,6 +7633,7 @@ int main(int argc, char** argv) {
         TestFirefoxLoopbackPresets();
         TestDnscacheDohPresets();
         TestIncomingDhcpPresets();
+        TestDhcpClientPortsPreset();
         TestStoreServicePresets(L"InstallService", IDS_PRESET_INSTALL_SERVICE,
                                 L"150.171.109.198", L"192.168.0.116", 50171);
         TestStoreServicePresets(L"AppXSvc", IDS_PRESET_APPX_DEPLOYMENT,

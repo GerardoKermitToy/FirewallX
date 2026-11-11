@@ -294,6 +294,16 @@ inline constexpr NetworkRule rustDesk[] = {
     {IDS_PRESET_RULE_RUSTDESK_UDP_21116, Proto::Udp, Dir::Out, pRustDesk21116}
 };
 inline constexpr NetworkRule teamViewer[] = { loopbackTcp4HostOut, https };
+// VMware использует точные адреса loopback на обоих концах, без привязки к портам.
+inline constexpr NetworkRule vmwareAuthd[] = {
+    {IDS_PRESET_RULE_LOOPBACK_TCP_IPV4, Proto::Tcp, Dir::Out, {}, {}, aLoopback4Host,
+        {}, RuleAction::Allow, aLoopback4Host}
+};
+inline constexpr NetworkRule vmware[] = {
+    vmwareAuthd[0],
+    {IDS_PRESET_RULE_LOOPBACK_TCP_IPV6, Proto::Tcp, Dir::Out, {}, {}, aLoopback6Host,
+        {}, RuleAction::Allow, aLoopback6Host}
+};
 // Сохраняем показанные адреса и парные порты mDNS без привязки к интерфейсу.
 inline constexpr NetworkRule teamViewerService[] = {
     http, https, loopbackTcp4HostIn,
@@ -345,6 +355,9 @@ inline constexpr NetworkRule dnsCacheMdns[] = {
     {IDS_PRESET_RULE_MDNS_IN, Proto::Udp, Dir::In, {}, pMdns, {}, {}, RuleAction::Allow, aMdnsMulticast4}
 };
 inline constexpr NetworkRule dhcp[] = { dhcp4, dhcp6, dhcp4In, dhcp6In };
+inline constexpr NetworkRule dhcpClientPorts[] = {
+    {IDS_PRESET_RULE_DHCP_CLIENT_PORTS, Proto::Udp, Dir::Unknown, pDhcp4Server, pDhcp4Client}
+};
 inline constexpr NetworkRule time[] = { ntp, dnsUdp, dnsTcp };
 inline constexpr NetworkRule systemWeb[] = { https, http, dnsUdp, dnsTcp };
 inline constexpr NetworkRule runtimeBroker[] = { https };
@@ -432,6 +445,8 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_TEAMVIEWER, L"TeamViewer.exe", teamViewer},
     {IDS_PRESET_TEAMVIEWER_SERVICE, L"TeamViewer_Service.exe", teamViewerService,
         Host::AppService, L"TeamViewer"},
+    {IDS_PRESET_VMWARE_AUTHD, L"vmware-authd.exe", vmwareAuthd, Host::AppService, L"VMAuthdService"},
+    {IDS_PRESET_VMWARE, L"vmware.exe", vmware},
     {IDS_PRESET_TELEGRAM, L"telegram.exe", telegram},
     {IDS_PRESET_STEAM, L"steam.exe", steam},
     {IDS_PRESET_STEAM, L"steamwebhelper.exe", steamWebHelper},
@@ -512,6 +527,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_DIAGNOSTICS, L"ping.exe;tracert.exe;pathping.exe", diagnostics},
     {IDS_PRESET_DNS, L"svchost.exe", dns, Host::Service, L"Dnscache"},
     {IDS_PRESET_DNSCACHE_MDNS, L"svchost.exe", dnsCacheMdns, Host::Service, L"Dnscache"},
+    {IDS_PRESET_DHCP_CLIENT_PORTS, L"svchost.exe", dhcpClientPorts, Host::Service, L"Dhcp"},
     {IDS_PRESET_DHCP, L"svchost.exe", dhcp, Host::Service, L"Dhcp"},
     {IDS_PRESET_TIME, L"svchost.exe", time, Host::Service, L"W32Time"},
     {IDS_PRESET_WINDOWS_UPDATE, L"svchost.exe", systemWeb, Host::Service, L"wuauserv;UsoSvc"},
