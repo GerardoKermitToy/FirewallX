@@ -15,6 +15,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
 if(MSVC)
+    # Компилятор MSVC собирает исходники проекта параллельно.
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/MP>")
+
     # Полный PDB без FASTLINK, с сохранением оптимизаций Release.
     add_link_options(
         "$<$<CONFIG:Release>:/DEBUG:FULL>"
@@ -278,7 +281,7 @@ target_link_libraries(FirewallX PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(FirewallX PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus /MP)
+    target_compile_options(FirewallX PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus)
     target_link_options(FirewallX PRIVATE /MANIFEST:NO)
     set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT FirewallX)
 else()
@@ -398,7 +401,7 @@ if(FIREWALLX_BUILD_TESTS)
     )
     target_link_libraries(process_cache_tests PRIVATE user32 gdi32 shell32 shlwapi ole32 xmllite windowscodecs)
     if(MSVC)
-        target_compile_options(process_cache_tests PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus /MP)
+        target_compile_options(process_cache_tests PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus)
         target_link_options(process_cache_tests PRIVATE /MANIFEST:NO)
     else()
         target_compile_options(process_cache_tests PRIVATE -Wall -Wextra)
@@ -419,7 +422,7 @@ if(FIREWALLX_BUILD_TESTS)
     )
     target_link_libraries(runtime_buffer_tests PRIVATE user32 advapi32)
     if(MSVC)
-        target_compile_options(runtime_buffer_tests PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus /MP)
+        target_compile_options(runtime_buffer_tests PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus)
         target_link_options(runtime_buffer_tests PRIVATE /MANIFEST:NO)
     else()
         target_compile_options(runtime_buffer_tests PRIVATE -Wall -Wextra)
@@ -451,7 +454,7 @@ if(FIREWALLX_BUILD_TESTS)
         xmllite windowscodecs
     )
     if(MSVC)
-        target_compile_options(ui_layout_tests PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus /MP)
+        target_compile_options(ui_layout_tests PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus)
         target_link_options(ui_layout_tests PRIVATE /MANIFEST:NO)
     else()
         target_compile_options(ui_layout_tests PRIVATE -Wall -Wextra)
@@ -480,7 +483,7 @@ if(FIREWALLX_BUILD_TESTS)
     )
     if(MSVC)
         target_compile_options(traffic_attribution_options_tests PRIVATE
-            /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+            /W4 /permissive- /utf-8 /Zc:__cplusplus
         )
     else()
         target_compile_options(traffic_attribution_options_tests PRIVATE -Wall -Wextra)
@@ -508,7 +511,7 @@ if(FIREWALLX_BUILD_TESTS)
     )
     if(MSVC)
         target_compile_options(process_protection_options_tests PRIVATE
-            /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+            /W4 /permissive- /utf-8 /Zc:__cplusplus
         )
     else()
         target_compile_options(process_protection_options_tests PRIVATE -Wall -Wextra)
@@ -572,7 +575,7 @@ if(FIREWALLX_BUILD_TESTS)
     )
     if(MSVC)
         target_compile_options(ask_actions_tests PRIVATE
-            /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+            /W4 /permissive- /utf-8 /Zc:__cplusplus
         )
         target_link_options(ask_actions_tests PRIVATE /MANIFEST:NO)
     else()
@@ -602,7 +605,7 @@ if(FIREWALLX_BUILD_TESTS)
     target_link_libraries(windows_firewall_options_tests PRIVATE ole32 uuid)
     if(MSVC)
         target_compile_options(windows_firewall_options_tests PRIVATE
-            /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+            /W4 /permissive- /utf-8 /Zc:__cplusplus
         )
     else()
         target_compile_options(windows_firewall_options_tests PRIVATE -Wall -Wextra)
@@ -622,7 +625,7 @@ if(FIREWALLX_BUILD_TESTS)
     target_link_libraries(wfp_audit_tests PRIVATE advapi32)
     if(MSVC)
         target_compile_options(wfp_audit_tests PRIVATE
-            /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+            /W4 /permissive- /utf-8 /Zc:__cplusplus
         )
     else()
         target_compile_options(wfp_audit_tests PRIVATE -Wall -Wextra)
@@ -649,7 +652,7 @@ if(FIREWALLX_BUILD_TESTS)
     )
     if(MSVC)
         target_compile_options(startup_options_tests PRIVATE
-            /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+            /W4 /permissive- /utf-8 /Zc:__cplusplus
         )
     else()
         target_compile_options(startup_options_tests PRIVATE -Wall -Wextra)
@@ -678,7 +681,7 @@ if(FIREWALLX_BUILD_TESTS)
     )
     if(MSVC)
         target_compile_options(flowstore_lifecycle_tests PRIVATE
-            /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+            /W4 /permissive- /utf-8 /Zc:__cplusplus
         )
         # Debug сохраняет UI-функции Util.cpp: импорт ordinal 381 требует
         # Common Controls v6 уже при загрузке exe, до входа в main.
@@ -963,7 +966,7 @@ if(FIREWALLX_BUILD_TESTS)
     )
     if(MSVC)
         target_compile_options(tls_reassembly_tests PRIVATE
-            /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+            /W4 /permissive- /utf-8 /Zc:__cplusplus
         )
     else()
         target_compile_options(tls_reassembly_tests PRIVATE -Wall -Wextra)
@@ -991,7 +994,7 @@ if(FIREWALLX_BUILD_TESTS)
     )
     if(MSVC)
         target_compile_options(http_host_tests PRIVATE
-            /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+            /W4 /permissive- /utf-8 /Zc:__cplusplus
         )
     else()
         target_compile_options(http_host_tests PRIVATE -Wall -Wextra)
@@ -1016,7 +1019,7 @@ if(FIREWALLX_BUILD_TESTS)
     )
     if(MSVC)
         target_compile_options(dns_query_tests PRIVATE
-            /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+            /W4 /permissive- /utf-8 /Zc:__cplusplus
         )
         # Debug сохраняет LoadIconWithScaleDown из Util.cpp: нужен Common Controls v6.
         target_link_options(dns_query_tests PRIVATE
@@ -1117,7 +1120,7 @@ if(FIREWALLX_BUILD_TESTS)
     )
     if(MSVC)
         target_compile_options(rules_matching_tests PRIVATE
-            /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+            /W4 /permissive- /utf-8 /Zc:__cplusplus
         )
         target_link_options(rules_matching_tests PRIVATE /MANIFEST:NO)
     else()
@@ -1145,7 +1148,7 @@ if(FIREWALLX_BUILD_TESTS)
         winsqlite3 iphlpapi ws2_32 user32 shell32 shlwapi ole32 advapi32 comctl32
     )
     if(MSVC)
-        target_compile_options(rules_lookup_bench PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus /MP)
+        target_compile_options(rules_lookup_bench PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus)
         target_link_options(rules_lookup_bench PRIVATE /MANIFEST:NO)
     endif()
 
@@ -1185,7 +1188,7 @@ if(FIREWALLX_BUILD_TESTS)
         )
         if(MSVC)
             target_compile_options(${target} PRIVATE
-                /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+                /W4 /permissive- /utf-8 /Zc:__cplusplus
             )
             target_link_options(${target} PRIVATE /MANIFEST:NO)
         else()
@@ -1222,7 +1225,7 @@ if(FIREWALLX_BUILD_TESTS)
     )
     if(MSVC)
         target_compile_options(process_handle_tests PRIVATE
-            /W4 /permissive- /utf-8 /Zc:__cplusplus /MP
+            /W4 /permissive- /utf-8 /Zc:__cplusplus
         )
         target_link_options(process_handle_tests PRIVATE /MANIFEST:NO)
     else()

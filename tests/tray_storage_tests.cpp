@@ -367,8 +367,13 @@ struct AppStorageTestAccess {
         app.status_ = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, WS_CHILD | WS_VISIBLE,
                                       0, 0, 0, 0, app.hwnd_, nullptr, app.inst_, nullptr);
         CheckTray(app.status_ != nullptr, "could not create tray storage status bar");
-        ShowWindow(app.hwnd_, SW_SHOWNOACTIVATE);
-        CheckTray(app.WindowShown(), "tray storage host was not shown");
+
+        // Explorer может ещё не создать значок, но автозапуск не должен показывать окно.
+        app.ShowAtStartup(SW_SHOWNOACTIVATE, true);
+        CheckTray(!IsWindowVisible(app.hwnd_) && app.rowsReleased_,
+                  "autostart showed the window or kept the display active");
+        app.ShowAtStartup(SW_SHOWNOACTIVATE, false);
+        CheckTray(app.WindowShown(), "manual startup did not show the window");
 
         // Фильтр, сортировка и ручное раскрытие должны пережить освобождение строк.
         app.filterText_ = L"192.0.2";

@@ -29,6 +29,7 @@
 #include "SettingsWindow.h"
 #include "Settings.h"
 #include "SingleInstance.h"
+#include "StartupOptions.h"
 #include "StringRes.h"
 #include "StorageMaintenance.h"
 #include "ServiceInfo.h"
@@ -457,7 +458,7 @@ public:
         ServiceInfo::Shutdown();
         AddrMacros::Shutdown();
     }
-    bool Init(HINSTANCE inst, int cmdShow);
+    bool Init(HINSTANCE inst, int cmdShow, bool startInTray);
     bool PreTranslate(MSG& msg);
     static LRESULT CALLBACK WndProcThunk(HWND, UINT, WPARAM, LPARAM);
 
@@ -539,6 +540,7 @@ private:
     void AddRuleFirst(Rule r);
 
     // трей и завершение работы
+    void ShowAtStartup(int cmdShow, bool startInTray);
     void HideToTray();
     void RestoreFromTray();
     bool ShowPendingBeforeExit();
@@ -739,7 +741,7 @@ void App::ReadDebugCounters(DebugCounters::Snapshot& out) {
     v[DebugCounters::AskQueue] = queue_.size();
 }
 
-bool App::Init(HINSTANCE inst, int cmdShow) {
+bool App::Init(HINSTANCE inst, int cmdShow, bool startInTray) {
     inst_ = inst;
 
     WNDCLASSEXW wc{};
@@ -790,9 +792,19 @@ bool App::Init(HINSTANCE inst, int cmdShow) {
     };
     accel_ = CreateAcceleratorTableW(acc, static_cast<int>(std::size(acc)));
 
-    ShowWindow(hwnd_, cmdShow);
-    UpdateWindow(hwnd_);
+    ShowAtStartup(cmdShow, startInTray);
     return true;
+}
+
+void App::ShowAtStartup(int cmdShow, bool startInTray) {
+    if (startInTray) {
+        // Если Explorer ещё не готов, TaskbarCreated восстановит значок позже.
+        SetMonitorDisplay(false);
+        UpdateTrayTip();
+    } else {
+        ShowWindow(hwnd_, cmdShow);
+        UpdateWindow(hwnd_);
+    }
 }
 
 LRESULT CALLBACK App::WndProcThunk(HWND h, UINT m, WPARAM w, LPARAM l) {
@@ -3533,7 +3545,7 @@ void App::InterruptSelected() {
 
 } // namespace
 
-int APIENTRY wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int cmdShow) {
+int APIENTRY wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int cmdShow) {
     int bindingHelperCode = 0;
     if (ndis_binding::TryRunHelper(bindingHelperCode)) return bindingHelperCode;
 
@@ -3546,10 +3558,12 @@ int APIENTRY wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int cmdShow) {
         FirewallX::ForceDesktopMode();                    // SCM недоступен — обычный запуск
     }
 
+    const bool startInTray = _wcsicmp(cmdLine, StartupOptions::kStartInTrayArgument) == 0;
+
     // Оконная копия должна быть одна. Служба сюда не попадает — её экземпляр
-    // не учитывается и не затрагивается.
+    // не учитывается и не затрагивается. Автозапуск не открывает уже скрытое окно.
     FirewallX::SingleInstance single;
-    if (!single.Acquire()) return 0;      // предпринята попытка активировать существующую копию
+    if (!single.Acquire(!startInTray)) return 0;
 
     const DWORD protectionStatus = ProcessProtectionOptions::ApplySaved();
     if (protectionStatus != ERROR_SUCCESS) {
@@ -3592,7 +3606,7 @@ int APIENTRY wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int cmdShow) {
     int rc = 1;
     {
         App app;
-        if (app.Init(inst, cmdShow)) {
+        if (app.Init(inst, cmdShow, startInTray)) {
             MSG msg{};
             for (;;) {
                 const BOOL got = GetMessageW(&msg, nullptr, 0, 0);

@@ -42,7 +42,7 @@ bool SingleInstance::ActivateRunning(DWORD timeoutMs) {
     }
 }
 
-bool SingleInstance::Acquire() {
+bool SingleInstance::Acquire(bool activateExisting) {
     mutex_ = CreateMutexW(nullptr, TRUE, AppInfo::kInstanceMutex);
     if (!mutex_) return true;              // не смогли проверить — не мешаем работе
 
@@ -56,7 +56,7 @@ bool SingleInstance::Acquire() {
     mutex_ = nullptr;
     owned_ = false;
 
-    ActivateRunning();
+    if (activateExisting) ActivateRunning();
     return false;
 }
 

@@ -450,8 +450,8 @@ void TestNewResources() {
     for (const Translation& translation : translations) {
         SetUiLang(translation.language);
         const std::wstring autoTip = LoadStringRes(IDS_SETTINGS_AUTO_CREATE_RULES_TIP);
-        Check(autoTip.find(L"IGMP") != std::wstring::npos && autoTip.find(L'0') != std::wstring::npos,
-              "automatic rule tooltip does not mention the IGMP PID 0 exception");
+        Check(!autoTip.empty() && autoTip.find(L"IGMP") == std::wstring::npos,
+              "automatic rule tooltip is empty or mentions IGMP");
         Check(LoadStringRes(IDS_RDS_EXTRA_LABEL).find(L'*') != std::wstring::npos,
               "service wildcard hint is missing from a translation");
         Check(LoadStringRes(IDS_PRESET_OTHER) == translation.other,

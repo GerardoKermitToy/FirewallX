@@ -110,10 +110,11 @@ HRESULT CreateTaskDefinition(ITaskService* service, const std::wstring& userSid,
     const std::wstring directory = executable.substr(0, slash + 1);
     Bstr sid(userSid.c_str());
     Bstr path(executable.c_str());
+    Bstr arguments(kStartInTrayArgument);
     Bstr workingDirectory(directory.c_str());
     Bstr taskDescription(description.c_str());
     Bstr unlimited(L"PT0S");
-    if (!sid.Get() || !path.Get() || !workingDirectory.Get() ||
+    if (!sid.Get() || !path.Get() || !arguments.Get() || !workingDirectory.Get() ||
         !taskDescription.Get() || !unlimited.Get())
         return E_OUTOFMEMORY;
 
@@ -183,6 +184,8 @@ HRESULT CreateTaskDefinition(ITaskService* service, const std::wstring& userSid,
     if (FAILED(status)) return status;
     // Путь передаётся отдельно от аргументов: пробелы не требуют ручных кавычек.
     status = exec->put_Path(path.Get());
+    if (FAILED(status)) return status;
+    status = exec->put_Arguments(arguments.Get());
     if (FAILED(status)) return status;
     status = exec->put_WorkingDirectory(workingDirectory.Get());
     if (FAILED(status)) return status;

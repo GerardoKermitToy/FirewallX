@@ -151,7 +151,8 @@ void TestTaskDefinition(ITaskService* service, const std::wstring& executable) {
           "неверный рабочий каталог");
     Bstr arguments;
     CheckStatus(exec->get_Arguments(arguments.Out()), "аргументы запуска");
-    Check(arguments.Text().empty(), "автозапуск не должен включать режим службы");
+    Check(arguments.Text() == StartupOptions::kStartInTrayArgument,
+          "автозапуск не передаёт признак запуска в трей");
 }
 
 } // namespace

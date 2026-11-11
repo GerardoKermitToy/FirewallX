@@ -203,7 +203,7 @@ protected:
         SetChecked(IDC_SYSTEM_SCALING,
                    Settings::GetBool(Settings::Key::kSystemDpiScaling, false));
         const std::wstring scalingTip = LoadStringRes(IDS_SETTINGS_SYSTEM_SCALING_TIP) +
-            L"\n\n" + LoadStringRes(IDS_SETTINGS_SYSTEM_SCALING_RESTART);
+            L" " + LoadStringRes(IDS_SETTINGS_SYSTEM_SCALING_RESTART);
         AddToolTip(scaling, scalingTip);
         AddToolTip(Item(IDC_SYSTEM_SCALING_LABEL), scalingTip);
 
@@ -215,7 +215,7 @@ protected:
               netEventsLabelW, m.labelH(), IDC_DLL_PROTECTION_LABEL, SS_NOTIFY);
         SetChecked(IDC_DLL_PROTECTION, ProcessProtectionOptions::Load());
         const std::wstring protectionTip = LoadStringRes(IDS_SETTINGS_DLL_PROTECTION_TIP) +
-            L"\n\n" + LoadStringRes(IDS_SETTINGS_DLL_PROTECTION_RESTART);
+            L" " + LoadStringRes(IDS_SETTINGS_DLL_PROTECTION_RESTART);
         AddToolTip(protection, protectionTip);
         AddToolTip(Item(IDC_DLL_PROTECTION_LABEL), protectionTip);
 
