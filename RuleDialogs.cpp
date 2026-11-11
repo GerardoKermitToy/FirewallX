@@ -156,11 +156,11 @@ private:
             return;
         }
         std::wstring text = LoadStringRes(IDS_INTERFACE_FILTER_UNAVAILABLE);
-        auto& watcher = net::SharedNetworkInterfaces();
         if (snapshot) {
-            for (const auto& entry : snapshot->interfaces) {
-                if (entry.name != selected) continue;
-                if (watcher.GetInterfaceNumberByName(selected, snapshot))
+            const auto match = snapshot->FindByName(selected);
+            if (match.first) {
+                const auto& entry = *match.first;
+                if (match.active)
                     text = LoadStringRes(IDS_INTERFACE_FILTER_ACTIVE);
                 text += L"\r\n" + LoadStringResFmt(IDS_INTERFACE_FILTER_INDEX_FMT,
                                                 entry.number, entry.ipv6_number);
@@ -184,7 +184,6 @@ private:
                                                 list(entry.gateways).c_str());
                 text += L"\r\n" + LoadStringResFmt(IDS_INTERFACE_FILTER_DNS_FMT,
                                                 list(entry.dns_servers).c_str());
-                break;
             }
         }
         SetText(IDC_HINT, text);

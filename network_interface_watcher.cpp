@@ -10,6 +10,73 @@
 #include <utility>
 
 namespace net {
+namespace {
+constexpr std::size_t kLinearNameLookupLimit = 16;
+}
+
+const NetworkInterfaceWatcher::InterfaceInfo*
+NetworkInterfaceWatcher::Snapshot::FindByIndex(std::uint32_t index) const noexcept {
+    const auto it = indices_.find(index);
+    if (it != indices_.end()) [[likely]] return &interfaces[it->second.position];
+    return nullptr;
+}
+
+NetworkInterfaceWatcher::Snapshot::NameLookup
+NetworkInterfaceWatcher::Snapshot::FindByName(std::wstring_view name) const noexcept {
+    if (interfaces.size() <= kLinearNameLookupLimit) [[likely]] {
+        NameLookup result;
+        for (const auto& entry : interfaces) {
+            if (entry.name != name) continue;
+            if (!result.first) result.first = &entry;
+            if (entry.up && entry.number) {
+                result.active = &entry;
+                break;
+            }
+        }
+        return result;
+    }
+    const auto it = names_.find(name);
+    if (it == names_.end()) return {};
+    return {&interfaces[it->second.first], it->second.active == kMissingPosition
+        ? nullptr : &interfaces[it->second.active]};
+}
+
+const NetworkInterfaceWatcher::InterfaceInfo*
+NetworkInterfaceWatcher::Snapshot::FindActiveByName(std::wstring_view name) const noexcept {
+    // Для короткого списка сравнение имён дешевле вычисления хеша.
+    if (interfaces.size() <= kLinearNameLookupLimit) [[likely]] {
+        for (const auto& entry : interfaces)
+            if (entry.up && entry.number && entry.name == name) return &entry;
+        return nullptr;
+    }
+    return FindByName(name).active;
+}
+
+bool NetworkInterfaceWatcher::Snapshot::ReversesNdisTraffic(std::uint32_t index) const noexcept {
+    const auto it = indices_.find(index);
+    return it != indices_.end() && it->second.reverse_ndis_traffic;
+}
+
+void NetworkInterfaceWatcher::Snapshot::RebuildLookup() {
+    indices_.clear();
+    names_.clear();
+    indices_.reserve(interfaces.size() * 2);
+    if (interfaces.size() > kLinearNameLookupLimit) names_.reserve(interfaces.size());
+    for (std::size_t position = 0; position < interfaces.size(); ++position) {
+        const auto& entry = interfaces[position];
+        for (const auto index : {entry.number, entry.ipv6_number}) {
+            if (!index) continue;
+            const auto [it, inserted] = indices_.try_emplace(
+                index, IndexEntry{position, entry.reverse_ndis_traffic});
+            if (!inserted && entry.reverse_ndis_traffic) it->second.reverse_ndis_traffic = true;
+        }
+        if (interfaces.size() > kLinearNameLookupLimit) {
+            const auto it = names_.try_emplace(entry.name, NameEntry{position}).first;
+            if (entry.up && entry.number && it->second.active == kMissingPosition)
+                it->second.active = position;
+        }
+    }
+}
 
 class NetworkInterfaceWatcher::Impl final {
 public:
@@ -146,11 +213,8 @@ public:
 
     std::optional<std::wstring> GetInterfaceName(std::uint32_t number) const {
         const auto snapshot = GetSnapshot();
-        if (snapshot && number) {
-            for (const auto& entry : snapshot->interfaces) {
-                if (entry.number == number || entry.ipv6_number == number)
-                    return entry.name;
-            }
+        if (snapshot) {
+            if (const auto* entry = snapshot->FindByIndex(number)) return entry->name;
         }
         return std::nullopt;
     }
@@ -158,8 +222,7 @@ public:
     std::optional<std::uint32_t> GetInterfaceNumberByName(
         std::wstring_view name, const SnapshotPtr& snapshot) const {
         if (snapshot) {
-            for (const auto& entry : snapshot->interfaces)
-                if (entry.up && entry.number && entry.name == name) return entry.number;
+            if (const auto* entry = snapshot->FindActiveByName(name)) return entry->number;
         }
         return std::nullopt;
     }
@@ -167,15 +230,11 @@ public:
     bool ReverseNdisTraffic(std::uint32_t index) const {
         if (!index) return false;
         const std::uint64_t indices = reverse_ndis_indices_.load(std::memory_order_acquire);
-        if (indices != UINT64_MAX)
+        if (indices != UINT64_MAX) [[likely]]
             return index == static_cast<std::uint32_t>(indices) ||
                    index == static_cast<std::uint32_t>(indices >> 32);
         const auto snapshot = GetSnapshot();
-        if (!snapshot) return false;
-        for (const auto& entry : snapshot->interfaces)
-            if (entry.reverse_ndis_traffic &&
-                (entry.number == index || entry.ipv6_number == index)) return true;
-        return false;
+        return snapshot && snapshot->ReversesNdisTraffic(index);
     }
 
     bool SetReverseNdisTraffic(std::wstring_view name, bool reverse) {
@@ -191,6 +250,7 @@ public:
             }
         }
         if (changed) {
+            next->RebuildLookup();
             const std::uint64_t indices = ReverseNdisIndices(*next);
             next->version = snapshot_->version + 1;
             snapshot_ = std::move(next);
@@ -350,6 +410,7 @@ private:
                 last_error_.store(error, std::memory_order_relaxed);
                 return false;
             }
+            next->RebuildLookup();
             std::lock_guard<std::mutex> lock(state_mutex_);
             if (require_running && !running_) return false;
             if (generation != snapshot_generation_) {

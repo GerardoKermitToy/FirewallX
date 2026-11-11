@@ -693,10 +693,9 @@ void RuleStore::SyncInterfacesLocked() const {
     if (!snapshot) return;
     bool changed = SyncAppInterfacesLocked(snapshot);
     for (auto& group : interfaces_) {
-        const uint32_t index = watcher.GetInterfaceNumberByName(group.name, snapshot).value_or(0);
-        uint32_t ipv6 = 0;
-        for (const auto& entry : snapshot->interfaces)
-            if (index && entry.name == group.name) { ipv6 = entry.ipv6_number; break; }
+        const auto match = snapshot->FindByName(group.name);
+        const uint32_t index = match.active ? match.active->number : 0;
+        const uint32_t ipv6 = match.active ? match.first->ipv6_number : 0;
         changed |= group.index != index || group.ipv6Index != ipv6;
         group.index = index;
         group.ipv6Index = ipv6;
@@ -718,11 +717,11 @@ void RuleStore::SyncInterfacesLocked() const {
             return group.name == entry.name;
         });
         if (found != interfaces_.end()) continue;
-        const auto index = watcher.GetInterfaceNumberByName(entry.name, snapshot);
-        if (!index) continue;
+        const auto* active = snapshot->FindActiveByName(entry.name);
+        if (!active) continue;
         InterfaceGroup group;
         group.name = entry.name;
-        group.index = *index;
+        group.index = active->number;
         group.ipv6Index = entry.ipv6_number;
         interfaces_.push_back(std::move(group));
         changed = true;
@@ -750,10 +749,14 @@ RuleStore::InterfaceFilter RuleStore::ResolveInterfaceFilter(
     InterfaceFilter filter;
     filter.name = name;
     if (name.empty()) return filter;
-    filter.index = net::SharedNetworkInterfaces().GetInterfaceNumberByName(name, snapshot).value_or(0);
-    if (filter.index && snapshot) {
-        for (const auto& entry : snapshot->interfaces)
-            if (entry.name == name) { filter.ipv6Index = entry.ipv6_number; break; }
+    if (snapshot) {
+        const auto match = snapshot->FindByName(name);
+        if (match.active) {
+            filter.index = match.active->number;
+            filter.ipv6Index = match.first->ipv6_number;
+        }
+    } else {
+        filter.index = net::SharedNetworkInterfaces().GetInterfaceNumberByName(name).value_or(0);
     }
     return filter;
 }
@@ -1311,10 +1314,15 @@ void RuleStore::RebuildIndexLocked() {
                 group.name = name;
                 auto& watcher = net::SharedNetworkInterfaces();
                 const auto snapshot = watcher.GetSnapshot();
-                group.index = watcher.GetInterfaceNumberByName(name, snapshot).value_or(0);
-                if (snapshot)
-                    for (const auto& entry : snapshot->interfaces)
-                        if (group.index && entry.name == name) { group.ipv6Index = entry.ipv6_number; break; }
+                if (snapshot) {
+                    const auto match = snapshot->FindByName(name);
+                    if (match.active) {
+                        group.index = match.active->number;
+                        group.ipv6Index = match.first->ipv6_number;
+                    }
+                } else {
+                    group.index = watcher.GetInterfaceNumberByName(name).value_or(0);
+                }
                 interfaces_.push_back(std::move(group));
                 found = std::prev(interfaces_.end());
             }

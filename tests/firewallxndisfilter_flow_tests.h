@@ -141,6 +141,41 @@ void TestNdisBandwidthBeforeConnection() {
     store.Reset();
 }
 
+void TestNdisBatchPreservesInterfaceIdentity() {
+    FlowStore& store = FlowStore::Instance();
+    store.Reset();
+    constexpr uint32_t interfaceIndex = 0x87654321u;
+    FlowKey old = NdisKey(Udp4(53000));
+    FlowKey first = NdisKey(Udp4(53001));
+    FlowKey second = NdisKey(Udp4(53002));
+    old.interfaceIndex = first.interfaceIndex = second.interfaceIndex = interfaceIndex;
+    const auto originalName = std::make_shared<const std::wstring>(L"Former interface");
+    auto event = Event(0);
+    event.interfaceIndex = interfaceIndex;
+    event.interfaceName = originalName;
+    store.NoteConnection(old, event);
+
+    const firewallxndisfilter::Client::BandwidthV4 entries[] = {
+        NdisBytes<firewallxndisfilter::Client::BandwidthV4>(old, 1, 2),
+        NdisBytes<firewallxndisfilter::Client::BandwidthV4>(first, 3, 4),
+        NdisBytes<firewallxndisfilter::Client::BandwidthV4>(second, 5, 6),
+    };
+    store.AddNdisBandwidthBatch(ProtoNumber(Proto::Udp), entries, 3, interfaceIndex);
+    const auto view = Take();
+    const auto& process = Process(view, TrafficGroupKey::Ndis(interfaceIndex));
+    const auto* oldConnection = Connection(process, old);
+    const auto* firstConnection = Connection(process, first);
+    const auto* secondConnection = Connection(process, second);
+    Check(oldConnection && oldConnection->driver && oldConnection->driver->interfaceName == originalName &&
+              firstConnection && firstConnection->driver && firstConnection->driver->interfaceName &&
+              firstConnection->driver->interfaceName->empty() && secondConnection &&
+              secondConnection->driver && secondConnection->driver->interfaceName == firstConnection->driver->interfaceName &&
+              oldConnection->driver->sent == 1 && firstConnection->driver->sent == 3 &&
+              secondConnection->driver->sent == 5,
+          "Ndis batch reused an older connection's interface identity");
+    store.Reset();
+}
+
 void TestNdisBlockedGrace() {
     FlowStore& store = FlowStore::Instance();
     store.Reset();
@@ -291,6 +326,7 @@ void TestNdisFlows() {
     TestNdisFlowIsolation();
     TestNdisMinuteInactivity();
     TestNdisBandwidthBeforeConnection();
+    TestNdisBatchPreservesInterfaceIdentity();
     TestNdisBlockedGrace();
     TestNdisBlockedIcmpDirection();
 }

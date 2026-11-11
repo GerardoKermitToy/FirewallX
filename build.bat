@@ -28,7 +28,7 @@ if not exist build\CMakeCache.txt (
 )
 
 echo [2/2] Building Release configuration...
-cmake --build build --config Release
+cmake --build build --config Release --parallel
 if errorlevel 1 (
     echo.
     echo [ERROR] Build failed

@@ -411,6 +411,87 @@ void TestAddedNotifications() {
     CloseHandle(addedEvent); CloseHandle(release); CloseHandle(entered);
 }
 
+void TestIndexedSnapshots() {
+    Watcher::Snapshot snapshot;
+    Interface inactive;
+    inactive.number = 7;
+    inactive.ipv6_number = 17;
+    inactive.name = L"Shared";
+    Interface active = inactive;
+    active.number = 8;
+    active.ipv6_number = 7;
+    active.up = true;
+    active.reverse_ndis_traffic = true;
+    Interface later = active;
+    later.number = 9;
+    later.ipv6_number = 19;
+    snapshot.interfaces = {inactive, active, later};
+    snapshot.RebuildLookup();
+
+    Check(!snapshot.FindByIndex(0) && !snapshot.FindByIndex(123),
+          "unknown interface index resolved");
+    Check(snapshot.FindByIndex(7) == &snapshot.interfaces[0] &&
+              snapshot.FindByIndex(17) == &snapshot.interfaces[0] &&
+              snapshot.FindByIndex(8) == &snapshot.interfaces[1],
+          "interface index did not preserve first-match or IPv6 semantics");
+    const std::wstring prefixedName = L"Shared suffix";
+    const auto name = snapshot.FindByName(L"Shared");
+    Check(name.first == &snapshot.interfaces[0] && name.active == &snapshot.interfaces[1] &&
+              snapshot.FindActiveByName(L"Shared") == &snapshot.interfaces[1] &&
+              snapshot.FindActiveByName(std::wstring_view(prefixedName.data(), 6)) == &snapshot.interfaces[1] &&
+              !snapshot.FindActiveByName(L"shared") &&
+              !snapshot.FindByName(L"Missing").first && !snapshot.FindByName(L"Missing").active,
+          "interface name did not preserve active, first-match, or case semantics");
+    Check(snapshot.ReversesNdisTraffic(7) && snapshot.ReversesNdisTraffic(8) &&
+              !snapshot.ReversesNdisTraffic(17) && !snapshot.ReversesNdisTraffic(0),
+          "duplicate or unknown Ndis interface index changed direction");
+
+    auto copy = snapshot;
+    snapshot = {};
+    Check(copy.FindByIndex(7) == &copy.interfaces[0] &&
+              copy.FindActiveByName(L"Shared") == &copy.interfaces[1] &&
+              copy.ReversesNdisTraffic(7),
+          "copied snapshot retained references to the original");
+    copy.interfaces[1].reverse_ndis_traffic = false;
+    copy.interfaces[2].reverse_ndis_traffic = false;
+    copy.RebuildLookup();
+    Check(!copy.ReversesNdisTraffic(7) && copy.FindByIndex(19) == &copy.interfaces[2],
+          "rebuilt snapshot lookup retained stale preferences");
+
+    for (std::uint32_t i = 0; i < 16; ++i) {
+        Interface extra;
+        extra.number = 100 + i;
+        extra.name = L"Extra " + std::to_wstring(i);
+        extra.up = true;
+        copy.interfaces.push_back(std::move(extra));
+    }
+    Interface unnamed;
+    unnamed.number = 1000;
+    unnamed.up = true;
+    copy.interfaces.push_back(std::move(unnamed));
+    Interface offline;
+    offline.name = L"Offline";
+    offline.number = 1001;
+    copy.interfaces.push_back(std::move(offline));
+    copy.RebuildLookup();
+    const auto indexedName = copy.FindByName(L"Shared");
+    Check(indexedName.first == &copy.interfaces[0] && indexedName.active == &copy.interfaces[1] &&
+              copy.FindActiveByName(std::wstring_view(prefixedName.data(), 6)) == &copy.interfaces[1] &&
+              copy.FindByName(L"Extra 15").active == &copy.interfaces[18] &&
+              copy.FindByName(L"").active == &copy.interfaces[19] &&
+              copy.FindByName(L"Offline").first == &copy.interfaces[20] &&
+              !copy.FindByName(L"Offline").active && !copy.FindByName(L"Missing").first &&
+              !copy.FindByName(L"Missing").active,
+          "large snapshot name index changed first or active matching");
+    auto indexedCopy = copy;
+    copy = {};
+    const auto copiedName = indexedCopy.FindByName(L"Shared");
+    Check(copiedName.first == &indexedCopy.interfaces[0] && copiedName.active == &indexedCopy.interfaces[1] &&
+              indexedCopy.FindByName(L"").active == &indexedCopy.interfaces[19] &&
+              indexedCopy.FindByIndex(7) == &indexedCopy.interfaces[0],
+          "copied large snapshot retained references to the original");
+}
+
 void TestSnapshots() {
     ResetFixture();
     SetAdapters(SampleAdapters());
@@ -420,7 +501,10 @@ void TestSnapshots() {
     const auto original = watcher.GetSnapshot();
     Check(original && original->version && original->interfaces.size() == 4, "incomplete initial snapshot");
     Check(watcher.GetInterfaceName(7) == L"Ethernet" && watcher.GetInterfaceNameByIndex(17) == L"Ethernet" &&
-          watcher.GetInterfaceNumberByName(L"Ethernet") == 7u && !watcher.GetInterfaceName(0),
+          watcher.GetInterfaceName(11) == L"Disconnected" && watcher.GetInterfaceName(21) == L"" &&
+          watcher.GetInterfaceNumberByName(L"Ethernet") == 7u &&
+          watcher.GetInterfaceNumberByName(L"") == 21u &&
+          !watcher.GetInterfaceNumberByName(L"Disconnected") && !watcher.GetInterfaceName(0),
           "interface lookup failed");
     Check(original->interfaces[3].number == 21 && original->interfaces[3].name.empty(),
           "IPv6-only unnamed interface was lost");
@@ -434,7 +518,12 @@ void TestSnapshots() {
     copy.front().name.clear();
     Check(watcher.GetInterfaceName(7) == L"Ethernet", "caller changed immutable snapshot");
     const auto reads = enumerationCalls.load();
-    for (int i = 0; i < 100; ++i) watcher.GetSnapshot();
+    for (int i = 0; i < 100; ++i) {
+        Check(watcher.GetInterfaceName(7) == L"Ethernet" &&
+                  watcher.GetInterfaceNumberByName(L"Ethernet") == 7u &&
+                  watcher.GetSnapshot()->FindByIndex(17) == &original->interfaces.front(),
+              "indexed interface lookup returned a different result");
+    }
     Sleep(20);
     Check(enumerationCalls == reads, "watcher polled without a notification");
 
@@ -743,6 +832,68 @@ void TestInterfaceRuleGroups() {
     }
     watcher.Stop();
 }
+
+void TestDuplicateInterfaceRuleLookup() {
+    for (const bool large : {false, true}) {
+        ResetFixture();
+        Interface inactive;
+        inactive.name = L"Duplicate";
+        inactive.number = 7;
+        inactive.ipv6_number = 17;
+        Interface active = inactive;
+        active.number = 8;
+        active.ipv6_number = 18;
+        active.up = true;
+        std::vector<Interface> values{inactive, active};
+        if (large) {
+            for (std::uint32_t i = 0; i < 16; ++i) {
+                Interface extra;
+                extra.name = L"Extra " + std::to_wstring(i);
+                extra.number = 100 + i;
+                extra.up = true;
+                values.push_back(std::move(extra));
+            }
+        }
+        SetAdapters(std::move(values));
+        auto& watcher = net::SharedNetworkInterfaces();
+        {
+            RuleStore store;
+            Rule filter;
+            filter.scope = RuleScope::Global;
+            filter.conds = CondInterface;
+            filter.interfaceName = active.name;
+            filter.action = RuleAction::Block;
+            store.Add(filter);
+            MatchQuery query;
+            Rule found;
+            for (const uint32_t index : {8u, 17u}) {
+                query.interfaceIndex = index;
+                Check(store.Match(query, found) && found.id == filter.id,
+                      "duplicate-name interface filter changed its selected indices");
+            }
+            query.interfaceIndex = 18;
+            Check(!store.Match(query, found), "interface filter used the later IPv6 index");
+
+            store.Clear();
+            Rule group;
+            group.scope = RuleScope::Interface;
+            group.appPath = active.name;
+            group.conds = CondNone;
+            group.action = RuleAction::Block;
+            store.Add(group);
+            Check(watcher.Refresh(), "cannot refresh duplicate-name interfaces");
+            (void)store.Interfaces();
+            for (const uint32_t index : {8u, 17u}) {
+                query.interfaceIndex = index;
+                Check(store.Match(query, found) && found.id == group.id,
+                      "duplicate-name interface group changed its selected indices");
+            }
+            query.interfaceIndex = 18;
+            Check(!store.Match(query, found), "interface group used the later IPv6 index");
+        }
+        watcher.Stop();
+    }
+}
 } // namespace
 
 namespace {
@@ -833,6 +984,13 @@ void TestReverseNdisInterfaces() {
     Check(watcher.Refresh() && watcher.ReverseNdisTraffic(7) && watcher.ReverseNdisTraffic(17) &&
               watcher.ReverseNdisTraffic(1) && !watcher.ReverseNdisTraffic(11),
           "Ndis preferences failed with more than two indices");
+    const auto many = watcher.GetSnapshot();
+    Check(watcher.SetReverseNdisTraffic(adapter.name, false) && !watcher.ReverseNdisTraffic(7) &&
+              watcher.ReverseNdisTraffic(1) && many->ReversesNdisTraffic(7),
+          "updating Ndis preferences changed a retained lookup");
+    Check(watcher.SetReverseNdisTraffic(adapter.name, true) && watcher.ReverseNdisTraffic(7) &&
+              watcher.ReverseNdisTraffic(17) && watcher.ReverseNdisTraffic(1),
+          "updated Ndis preference was missing from indexed fallback");
     Check(Settings::Remove(otherKey.c_str()), "cannot remove second Ndis preference");
     adapter.number = 29;
     adapter.ipv6_number = 39;
@@ -928,12 +1086,14 @@ int main() {
     try {
         std::wstring error;
         Check(Settings::Open(L":memory:", error), "cannot open test settings");
+        TestIndexedSnapshots();
         TestSnapshots();
         TestAddedNotifications();
         TestNotificationsAndRaces();
         TestLifecycleAndCoalescing();
         TestMacros();
         TestInterfaceRuleGroups();
+        TestDuplicateInterfaceRuleLookup();
         TestFrozenInterfaceQueries();
         TestReverseNdisInterfaces();
         TestSynchronousRuleRecovery();

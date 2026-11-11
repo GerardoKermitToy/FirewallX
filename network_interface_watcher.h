@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace net {
@@ -77,6 +78,45 @@ public:
         // Поколение успешного полного перечисления, а не версия значений макросов.
         std::uint64_t version = 0;
         std::vector<InterfaceInfo> interfaces;
+
+        struct NameLookup {
+            const InterfaceInfo* first = nullptr;
+            const InterfaceInfo* active = nullptr;
+        };
+
+        // Указатели действуют, пока жив и не изменён сам снимок.
+        const InterfaceInfo* FindByIndex(std::uint32_t index) const noexcept;
+        NameLookup FindByName(std::wstring_view name) const noexcept;
+        const InterfaceInfo* FindActiveByName(std::wstring_view name) const noexcept;
+        bool ReversesNdisTraffic(std::uint32_t index) const noexcept;
+
+        // Вызывается после изменения интерфейсов и до публикации снимка.
+        void RebuildLookup();
+
+    private:
+        struct IndexEntry {
+            std::size_t position;
+            bool reverse_ndis_traffic;
+        };
+        static constexpr std::size_t kMissingPosition = static_cast<std::size_t>(-1);
+        struct NameEntry {
+            std::size_t first;
+            std::size_t active = kMissingPosition;
+        };
+        struct NameHash {
+            using is_transparent = void;
+            std::size_t operator()(std::wstring_view name) const noexcept {
+                return std::hash<std::wstring_view>{}(name);
+            }
+        };
+        struct NameEqual {
+            using is_transparent = void;
+            bool operator()(std::wstring_view left, std::wstring_view right) const noexcept {
+                return left == right;
+            }
+        };
+        std::unordered_map<std::uint32_t, IndexEntry> indices_;
+        std::unordered_map<std::wstring, NameEntry, NameHash, NameEqual> names_;
     };
     using SnapshotPtr = std::shared_ptr<const Snapshot>;
 

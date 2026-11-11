@@ -29,12 +29,8 @@ void CaptureInterface(FlowStore::DriverDetails& details, uint32_t index,
     if (!index) return;
     const auto snapshot = net::SharedNetworkInterfaces().GetSnapshot();
     if (snapshot) {
-        for (const auto& entry : snapshot->interfaces) {
-            if (entry.number == index || entry.ipv6_number == index) {
-                details.interfaceName = std::shared_ptr<const std::wstring>(snapshot, &entry.name);
-                break;
-            }
-        }
+        if (const auto* entry = snapshot->FindByIndex(index))
+            details.interfaceName = std::shared_ptr<const std::wstring>(snapshot, &entry->name);
     }
 }
 
@@ -2025,7 +2021,7 @@ FlowStore::ConnectionRecord* FlowStore::NdisConnectionLocked(
     const FlowKey& key, bool newAttempt) {
     const TrafficGroupKey group = TrafficGroupKey::Ndis(key.interfaceIndex);
     auto indexed = ndisConnections_.find(key);
-    if (indexed != ndisConnections_.end()) {
+    if (indexed != ndisConnections_.end()) [[likely]] {
         auto process = processes_.find(group);
         if (process != processes_.end()) {
             auto found = process->second.connections.find(indexed->second);
@@ -2054,6 +2050,7 @@ void FlowStore::AddNdisBandwidth(uint8_t protocol, const Value* entries, uint32_
     const bool reverse = net::SharedNetworkInterfaces().ReverseNdisTraffic(interfaceIndex);
     const ULONGLONG now = GetTickCount64();
     std::lock_guard<std::mutex> lock(mtx_);
+    std::shared_ptr<const std::wstring> interfaceName;
     for (uint32_t i = 0; i < count; ++i) {
         const Value& entry = entries[i];
         FlowKey key = MakeFlowKey(ProtoFromNumber(protocol), IpFromRaw(entry.local_ip),
@@ -2066,7 +2063,11 @@ void FlowStore::AddNdisBandwidth(uint8_t protocol, const Value* entries, uint32_
         key.interfaceIndex = interfaceIndex;
         ConnectionRecord* connection = NdisConnectionLocked(key);
         DriverDetails& details = EnsureDriverDetails(*connection);
-        CaptureInterface(details, interfaceIndex);
+        if (!details.interfaceName || details.interfaceIndex != interfaceIndex) [[unlikely]] {
+            // Все записи пакета относятся к одному интерфейсу; старые имена не заменяем.
+            CaptureInterface(details, interfaceIndex, interfaceName);
+            if (!interfaceName) interfaceName = details.interfaceName;
+        }
         const uint64_t sent = reverse ? entry.received_bytes : entry.transmitted_bytes;
         const uint64_t recv = reverse ? entry.transmitted_bytes : entry.received_bytes;
         details.sent += sent;
