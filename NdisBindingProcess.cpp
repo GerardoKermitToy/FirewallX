@@ -206,7 +206,8 @@ static HRESULT RunChild(const std::atomic<bool>& stopped, const wchar_t* operati
                 CheckWin32(SetEvent(cancel.value) ? ERROR_SUCCESS : GetLastError());
                 cancelling = true;
             }
-            const DWORD wait = WaitForSingleObject(child.value, 50);
+            // После сигнала отмены ждём завершения без периодических пробуждений.
+            const DWORD wait = WaitForSingleObject(child.value, cancelling ? INFINITE : 250);
             if (wait == WAIT_TIMEOUT) continue;
             if (wait != WAIT_OBJECT_0) {
                 const auto error = GetLastError();

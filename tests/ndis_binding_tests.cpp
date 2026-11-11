@@ -1,5 +1,6 @@
 // Только поддельная сеть и конфигурация: драйвер, реестр и NetCfg не вызываются.
 #include "ndis_binding_component_tests.h"
+#include "ndis_binding_media_tests.h"
 #include "ndis_binding_async_tests.h"
 #include "NdisBinding.h"
 #include <algorithm>
@@ -57,7 +58,11 @@ public:
         Step("installed");
         if (!installed) throw Error{HRESULT_FROM_WIN32(ERROR_SERVICE_DOES_NOT_EXIST)};
     }
-    Targets ResolveTargets() override { Step("resolve"); return targets; }
+    Targets ResolveTargets(std::vector<Binding>* snapshot = nullptr) override {
+        Step("resolve");
+        if (snapshot) *snapshot = ReadBindings();
+        return targets;
+    }
     Configuration ReadConfiguration() override { Step("config"); return configuration; }
     std::vector<Binding> ReadBindings() override { Step("bindings"); return bindings; }
     void SetRecoveryAllowed(bool allowed) override {
@@ -72,6 +77,7 @@ public:
             [&](const Binding& binding) { return binding.adapter == adapter.guid; }), "unknown binding touched");
         if (adding) CheckTest(configuration.allowed && adapter.guid == additionGuid, "existing binding touched");
         else CheckTest(configuration.allowed == enabled);
+        CheckTest(!enabled || ShouldEnable(adapter), "unsupported or excluded adapter enabled");
         bindingChanges.push_back({adapter.guid, enabled});
         Step(enabled ? "enable" : "disable");
         if (enabled ? enableEffect : disableEffect) {
@@ -135,14 +141,15 @@ int main() {
             CheckTest(kConfigVersion == 4 && kFilterId == Guid(L"{6E76EAD1-7BCB-49C4-9547-D3E6B3488F71}"));
         }},
         {"native non-PnP component identity", [] { CheckTest(ndis_binding_tests::ComponentIdentityTests()); }},
+        {"NETIO identity and Ethernet or Wi-Fi media", [] { CheckTest(ndis_binding_tests::AdapterMediaTests()); }},
         {"asynchronous topology success and failure", [] { ndis_binding_tests::AsyncSuccessAndFailureTest(); }},
         {"asynchronous cancellation cannot multiply workers", [] { ndis_binding_tests::AsyncCancellationTest(); }},
         {"asynchronous deadline owns its storage", [] { ndis_binding_tests::AsyncTimeoutAndLifetimeTest(); }},
         {"asynchronous deadline keeps the captured snapshot alive", [] { ndis_binding_tests::AsyncOwnedSnapshotTest(); }},
         {"schema-4 flags and fake registry", [] { BindingConfigTests(); }},
         {"excluded interface names persist in the shared settings database", [] { PreferencePersistenceTests(); }},
-        {"all filter paths selected regardless of adapter origin", [] {
-            // Физический, виртуальный и Wi-Fi адаптеры определяются путями, а не именами или типом.
+        {"all filter paths remain available for safe disable", [] {
+            // VMware, Wi-Fi и IP-туннели определяются средой, а не именами или происхождением.
             const Targets inventory{Target(), Target(secondId, 22), Target(previousId, 33), Target(foreignId, 44)};
             const std::vector<Binding> paths{{currentId, true}, {secondId, false}, {previousId, true}, {currentId, false}};
             const Targets expected{inventory[0], inventory[1], inventory[2]};
@@ -161,6 +168,37 @@ int main() {
             FakeSystem s; Targets result;
             CheckTest(EnsureFake(s, Attached(s.targets), result) == S_OK && repairs == 0 && !lastRebound);
             CheckTest(SameTargets(result, s.targets) && !s.Called("lock")); s.NoMutation();
+        }},
+        {"IP-only path stays disabled while VMware Ethernet is healthy", [] {
+            FakeSystem s; Targets result;
+            s.targets[0].name = L"VMnet1";
+            s.targets[1].name = L"VMnet8";
+            auto tunnel = Target(previousId, 33);
+            tunnel.name = L"IP tunnel";
+            tunnel.compatible = false;
+            s.targets.push_back(tunnel);
+            s.bindings.push_back({tunnel.guid, false});
+            const auto attached = Attached(Pair());
+            CheckTest(EnsureFake(s, attached, result) == S_OK && repairs == 0 && !lastRebound);
+            CheckTest(SameTargets(result, s.targets) && FindMissing(s, attached).empty());
+            s.NoMutation();
+        }},
+        {"enabled unsupported path is disabled without being re-enabled", [] {
+            FakeSystem s; Targets result;
+            s.targets[1].compatible = false;
+            auto attached = Attached(s.targets); attached.pop_back();
+            CheckTest(EnsureFake(s, attached, result) == S_OK && repairs == 1);
+            CheckTest(s.bindings[0].enabled && !s.bindings[1].enabled);
+            for (const auto& change : s.bindingChanges)
+                CheckTest(change.adapter != secondId || !change.enabled, "IP path re-enabled");
+        }},
+        {"media change during full recovery prevents re-arming", [] {
+            FakeSystem s;
+            s.onStep = [&](const char* name) {
+                if (std::string_view(name) == "disable") s.targets[1].compatible = false;
+            };
+            CheckTest(Prepare(s, true) == HRESULT_FROM_WIN32(ERROR_RETRY));
+            CheckTest(!s.configuration.allowed && !s.Called("arm"));
         }},
         {"interface exclusions follow the name when adapter identity changes", [] {
             const std::vector<std::wstring> excluded{L"Ethernet café 网络"};
@@ -254,6 +292,23 @@ int main() {
                 if (std::string_view(name) == "resolve" && ++resolves == 2) s.targets[1].guid = foreignId;
             };
             CheckTest(Rejected([&] { FindMissing(s, {}); }) == HRESULT_FROM_WIN32(ERROR_RETRY));
+            s.NoMutation();
+        }},
+        {"reconciliation rejects binding changes before publication", [] {
+            FakeSystem s; unsigned resolves = 0;
+            s.onStep = [&](const char* name) {
+                if (std::string_view(name) == "resolve" && ++resolves == 2) s.bindings[1].enabled = false;
+            };
+            CheckTest(Rejected([&] { FindMissing(s, Attached(s.targets)); }) == HRESULT_FROM_WIN32(ERROR_RETRY));
+            CheckTest(resolves == 2 && std::count(s.calls.begin(), s.calls.end(), "bindings") == 2);
+            s.NoMutation();
+        }},
+        {"reordered unchanged paths do not require a repair", [] {
+            FakeSystem s; unsigned resolves = 0; Targets result;
+            s.onStep = [&](const char* name) {
+                if (std::string_view(name) == "resolve" && ++resolves == 2) std::reverse(s.bindings.begin(), s.bindings.end());
+            };
+            CheckTest(EnsureFake(s, Attached(s.targets), result) == S_OK && repairs == 0);
             s.NoMutation();
         }},
         {"inspection failure is not permission to launch a helper", [] {

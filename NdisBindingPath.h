@@ -13,6 +13,40 @@
 namespace ndis_binding::detail {
 using Microsoft::WRL::ComPtr;
 
+struct AdapterQuery {
+    decltype(&ConvertInterfaceGuidToLuid) guidToLuid = ConvertInterfaceGuidToLuid;
+    decltype(&ConvertInterfaceLuidToGuid) luidToGuid = ConvertInterfaceLuidToGuid;
+    decltype(&GetIfEntry2) getEntry = GetIfEntry2;
+};
+
+inline bool CompatibleMedia(NDIS_MEDIUM media) noexcept {
+    // NETIO может показывать Native 802.11 для Wi-Fi, привязанного через Ethernet.
+    return media == NdisMedium802_3 || media == NdisMediumNative802_11;
+}
+
+inline MIB_IF_ROW2 QueryAdapter(const GUID& guid, const AdapterQuery& api = {}) {
+    if (guid == GUID_NULL) throw Error{ E_UNEXPECTED };
+    NET_LUID luid{};
+    GUID roundTrip{};
+    CheckWin32(api.guidToLuid(&guid, &luid));
+    if (!luid.Value) throw Error{ HRESULT_FROM_WIN32(ERROR_RETRY) };
+    CheckWin32(api.luidToGuid(&luid, &roundTrip));
+    if (roundTrip != guid) throw Error{ HRESULT_FROM_WIN32(ERROR_RETRY) };
+    MIB_IF_ROW2 row{};
+    row.InterfaceLuid = luid;
+    CheckWin32(api.getEntry(&row));
+    if (row.InterfaceGuid != guid || row.InterfaceLuid.Value != luid.Value)
+        throw Error{ HRESULT_FROM_WIN32(ERROR_RETRY) };
+    return row;
+}
+
+inline void VerifyEnableAdapter(const Adapter& adapter, const AdapterQuery& api = {}) {
+    if (!ShouldEnable(adapter)) throw Error{ HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) };
+    const auto row = QueryAdapter(adapter.guid, api);
+    if (row.InterfaceLuid.Value != adapter.luid || !CompatibleMedia(row.MediaType))
+        throw Error{ HRESULT_FROM_WIN32(ERROR_RETRY) };
+}
+
 inline std::vector<GUID> ReadAdapterInventory(INetCfg* config) {
     ComPtr<IEnumNetCfgComponent> enumerator;
     if (config->EnumComponents(&GUID_DEVCLASS_NET, &enumerator) != S_OK || !enumerator) throw Error{ E_UNEXPECTED };

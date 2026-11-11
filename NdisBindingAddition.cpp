@@ -41,7 +41,7 @@ void RevalidateConfiguration(System& system, const Configuration& expected) {
 void RevalidateTarget(System& system, const Adapter& target, const Configuration& expected) {
     const auto current = FindTarget(system, target.luid);
     if (!current || !SameTarget(*current, target) || current->expectRunning != target.expectRunning ||
-        current->excluded != target.excluded || current->name != target.name) {
+        current->excluded != target.excluded || current->name != target.name || current->compatible != target.compatible) {
         throw Error{HRESULT_FROM_WIN32(ERROR_RETRY)};
     }
     RevalidateConfiguration(system, expected);
@@ -58,8 +58,8 @@ std::optional<Adapter> InspectAddition(System& system, uint64_t luid, std::span<
     RequireAdditionAllowed(config);
     const auto target = FindTarget(system, luid);
     if (!target) return std::nullopt;
-    const bool ready = MatchesBinding(system, *target, !target->excluded);
-    const bool running = target->excluded || !target->expectRunning || std::count_if(attached.begin(), attached.end(),
+    const bool ready = MatchesBinding(system, *target, ShouldEnable(*target));
+    const bool running = !ShouldEnable(*target) || !target->expectRunning || std::count_if(attached.begin(), attached.end(),
         [&](const AttachedAdapter& module) { return module.running && SameTarget(module.identity, *target); }) == 1;
     RevalidateTarget(system, *target, config);
     if (ready && running) return std::nullopt;
@@ -111,14 +111,14 @@ HRESULT ApplyTarget(System& system, uint64_t luid, std::wstring_view name, bool 
         }
         if (!selected) return S_FALSE;
         target = *selected;
-        MatchesBinding(system, target, !target.excluded);
+        MatchesBinding(system, target, ShouldEnable(target));
         RevalidateTarget(system, target, config);
         changing = true;
         // Исключение отключает только выбранный адаптер, не прерывая остальные.
         system.SetBinding(target, false);
         if (!MatchesBinding(system, target, false)) throw Error{E_UNEXPECTED};
         RevalidateTarget(system, target, config);
-        if (!target.excluded) {
+        if (ShouldEnable(target)) {
             // Переподключаем только новый путь, не прерывая работающие адаптеры.
             system.SetBinding(target, true);
             if (!MatchesBinding(system, target, true)) throw Error{HRESULT_FROM_WIN32(ERROR_NOT_READY)};

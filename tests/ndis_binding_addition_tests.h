@@ -38,6 +38,31 @@ std::vector<Case> AdditionCases() {
             CheckTest(s.bindings.back().enabled && s.bindingChanges.size() == 2 && s.At("disable") < s.At("enable"));
             OldBindingsUnchanged(s);
         }},
+        {"unsupported arrival stays disabled without starting a worker", [] {
+            FakeSystem s; NewArrival(s); s.targets.back().compatible = false;
+            Adapter output;
+            CheckTest(EnsureFakeAddition(s, arriving.luid, Attached(Pair()), output) == S_FALSE);
+            CheckTest(additionalWorkers == 0); s.NoMutation();
+        }},
+        {"enabled unsupported arrival is only disabled", [] {
+            FakeSystem s; NewArrival(s, true); s.targets.back().compatible = false;
+            Adapter output;
+            CheckTest(EnsureFakeAddition(s, arriving.luid, Attached(Pair()), output) == S_OK);
+            CheckTest(!output.compatible && !s.bindings.back().enabled && s.bindingChanges.size() == 1 &&
+                      !s.bindingChanges.front().enabled);
+            OldBindingsUnchanged(s);
+            s.calls.clear(); s.bindingChanges.clear();
+            CheckTest(EnsureFakeAddition(s, arriving.luid, Attached(Pair()), output) == S_FALSE);
+            CheckTest(additionalWorkers == 0); s.NoMutation();
+        }},
+        {"media change during addition prevents enabling a stale target", [] {
+            FakeSystem s; NewArrival(s);
+            s.onStep = [&](const char* name) {
+                if (std::string_view(name) == "disable") s.targets.back().compatible = false;
+            };
+            CheckTest(AddTarget(s, arriving.luid) == HRESULT_FROM_WIN32(ERROR_RETRY));
+            CheckTest(!s.bindings.back().enabled && !s.Called("enable")); OldBindingsUnchanged(s);
+        }},
         {"excluded arrival detaches only its own paths and stays detached", [] {
             FakeSystem s; NewArrival(s, true); s.targets.back().excluded = true;
             s.bindings.push_back({arriving.guid, false});

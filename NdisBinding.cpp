@@ -29,7 +29,7 @@ bool ValidateBindings(const std::vector<Binding>& bindings, const Targets& targe
         for (const auto& binding : bindings) {
             if (binding.adapter != target.guid) continue;
             found = true;
-            ready = ready && (binding.enabled != target.excluded);
+            ready = ready && (binding.enabled == ShouldEnable(target));
         }
         if (!found) throw Error{ HRESULT_FROM_WIN32(ERROR_NOT_READY) };
     }
@@ -37,13 +37,19 @@ bool ValidateBindings(const std::vector<Binding>& bindings, const Targets& targe
     return ready;
 }
 
-void Revalidate(System& system, const Targets& targets, const Configuration& expected) {
+void Revalidate(System& system, const Targets& targets, const Configuration& expected,
+                const std::vector<Binding>* snapshot = nullptr) {
     CheckStopped(system);
-    const auto current = system.ResolveTargets();
+    std::vector<Binding> currentBindings;
+    const auto current = system.ResolveTargets(snapshot ? &currentBindings : nullptr);
     ValidateTargets(current);
     const auto config = system.ReadConfiguration();
     if (!SameTargets(targets, current) || expected.allowed != config.allowed ||
-        expected.recovery != config.recovery) throw Error{ HRESULT_FROM_WIN32(ERROR_RETRY) };
+        expected.recovery != config.recovery ||
+        (snapshot && (snapshot->size() != currentBindings.size() ||
+            !std::is_permutation(snapshot->begin(), snapshot->end(), currentBindings.begin(),
+                [](const Binding& a, const Binding& b) { return a.adapter == b.adapter && a.enabled == b.enabled; }))))
+        throw Error{ HRESULT_FROM_WIN32(ERROR_RETRY) };
 }
 
 void RequireRecovery(const Configuration& config, bool resumeLegacy) {
@@ -71,7 +77,7 @@ bool SameTargets(const Targets& first, const Targets& second) noexcept {
     return first.size() == second.size() && std::is_permutation(first.begin(), first.end(), second.begin(),
         [](const Adapter& a, const Adapter& b) {
             return SameTarget(a, b) && a.expectRunning == b.expectRunning && a.excluded == b.excluded &&
-                   a.name == b.name;
+                   a.name == b.name && a.compatible == b.compatible;
         });
 }
 
@@ -109,7 +115,7 @@ void MarkExcludedByName(Targets& targets, std::span<const std::wstring> excluded
 
 bool AllTargetsRunning(const Targets& targets, std::span<const AttachedAdapter> attached) noexcept {
     for (const auto& target : targets) {
-        if (!target.expectRunning || target.excluded) continue;
+        if (!target.expectRunning || !ShouldEnable(target)) continue;
         if (std::count_if(attached.begin(), attached.end(), [&](const AttachedAdapter& module) {
                 return module.running && SameTarget(target, module.identity);
             }) != 1) return false;
@@ -124,11 +130,11 @@ Inspection Inspect(System& system, std::span<const AttachedAdapter> attached) {
     system.RequireInstalled();
     const auto config = system.ReadConfiguration();
     RequireRecovery(config, false);
-    auto targets = system.ResolveTargets();
+    std::vector<Binding> bindings;
+    auto targets = system.ResolveTargets(&bindings);
     ValidateTargets(targets);
-    const auto bindings = system.ReadBindings();
     const bool ready = ValidateBindings(bindings, targets);
-    Revalidate(system, targets, config);
+    Revalidate(system, targets, config, &bindings);
     const bool needsRebind = !config.allowed || !ready || !AllTargetsRunning(targets, attached);
     return {std::move(targets), needsRebind};
 }
@@ -142,20 +148,20 @@ Targets FindMissing(System& system, std::span<const AttachedAdapter> attached) {
     if (!config.allowed || config.recovery != RecoveryPermission::Allowed) {
         throw Error{ HRESULT_FROM_WIN32(ERROR_SERVICE_DISABLED) };
     }
-    const auto targets = system.ResolveTargets();
+    std::vector<Binding> bindings;
+    const auto targets = system.ResolveTargets(&bindings);
     ValidateTargets(targets);
-    const auto bindings = system.ReadBindings();
     ValidateBindings(bindings, targets);
     Targets missing;
     for (const auto& target : targets) {
         const bool wrongBinding = std::any_of(bindings.begin(), bindings.end(), [&](const Binding& binding) {
-            return binding.adapter == target.guid && binding.enabled == target.excluded;
+            return binding.adapter == target.guid && binding.enabled != ShouldEnable(target);
         });
-        const bool running = target.excluded || !target.expectRunning || std::count_if(attached.begin(), attached.end(),
+        const bool running = !ShouldEnable(target) || !target.expectRunning || std::count_if(attached.begin(), attached.end(),
             [&](const AttachedAdapter& module) { return module.running && SameTarget(module.identity, target); }) == 1;
         if (wrongBinding || !running) missing.push_back(target);
     }
-    Revalidate(system, targets, config);
+    Revalidate(system, targets, config, &bindings);
     return missing;
 }
 
@@ -190,18 +196,18 @@ HRESULT Prepare(System& system, bool forceReattach, bool resumeLegacy) noexcept 
         auto config = system.ReadConfiguration();
         RequireRecovery(config, resumeLegacy);
         if (resumeLegacy && config.allowed) return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
-        targets = system.ResolveTargets();
+        std::vector<Binding> bindings;
+        targets = system.ResolveTargets(&bindings);
         ValidateTargets(targets);
-        const auto bindings = system.ReadBindings();
         const bool ready = ValidateBindings(bindings, targets);
         if (resumeLegacy && config.recovery == RecoveryPermission::Legacy) {
             ValidateBindings(bindings, targets, true);
         }
         if (!forceReattach && config.allowed && ready) {
-            Revalidate(system, targets, config);
+            Revalidate(system, targets, config, &bindings);
             return S_OK;
         }
-        Revalidate(system, targets, config);
+        Revalidate(system, targets, config, &bindings);
         changing = true;
         if (config.recovery == RecoveryPermission::Legacy) {
             system.SetRecoveryAllowed(true);
@@ -220,7 +226,7 @@ HRESULT Prepare(System& system, bool forceReattach, bool resumeLegacy) noexcept 
         config.allowed = true;
         for (const auto& target : targets) {
             CheckStopped(system);
-            if (!target.excluded) system.SetBinding(target, true);
+            if (ShouldEnable(target)) system.SetBinding(target, true);
         }
         ValidateBindings(system.ReadBindings(), targets, false, true);
         Revalidate(system, targets, config);

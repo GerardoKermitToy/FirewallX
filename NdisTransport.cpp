@@ -304,10 +304,9 @@ HRESULT ProcessArrivals(Client& client, std::span<const net::NetworkInterfaceWat
             ndis_binding::detail::Adapter added;
             if (SUCCEEDED(status)) status = ndis_binding::EnsureAdditionalBinding(
                 g_stop, arrival.interface_luid, attached, added);
-            if (status == S_OK) {
+            if (status == S_OK && ndis_binding::detail::ShouldEnable(added) && added.expectRunning) {
                 status = ReadAttachedAdapters(client, attached);
-                if (SUCCEEDED(status) && !added.excluded && added.expectRunning &&
-                    std::count_if(attached.begin(), attached.end(), [&](const auto& module) {
+                if (SUCCEEDED(status) && std::count_if(attached.begin(), attached.end(), [&](const auto& module) {
                         return module.running && ndis_binding::detail::SameTarget(module.identity, added);
                     }) != 1) status = HRESULT_FROM_WIN32(ERROR_NOT_READY);
             }

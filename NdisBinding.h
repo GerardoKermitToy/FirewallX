@@ -45,8 +45,14 @@ struct Adapter {
     // Исключённый адаптер должен иметь отключённые пути фильтра.
     bool excluded = false;
     std::wstring name;
+    // Неподдерживаемые пути сохраняются для отключения, но не включаются.
+    bool compatible = true;
 };
 using Targets = std::vector<Adapter>;
+
+inline bool ShouldEnable(const Adapter& adapter) noexcept {
+    return adapter.compatible && !adapter.excluded;
+}
 
 struct AttachedAdapter {
     Adapter identity;
@@ -81,7 +87,7 @@ public:
     virtual void OpenNetwork() = 0;
     virtual void LockNetwork() = 0;
     virtual void RequireInstalled() = 0;
-    virtual Targets ResolveTargets() = 0;
+    virtual Targets ResolveTargets(std::vector<Binding>* bindings = nullptr) = 0;
     virtual Configuration ReadConfiguration() = 0;
     virtual std::vector<Binding> ReadBindings() = 0;
     virtual void SetRecoveryAllowed(bool allowed) = 0;

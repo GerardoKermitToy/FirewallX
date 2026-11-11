@@ -119,7 +119,7 @@ public:
         initialized_ = true;
     }
     void RequireInstalled() override { Component(); }
-    Targets ResolveTargets() override {
+    Targets ResolveTargets(std::vector<Binding>* snapshot = nullptr) override {
         const auto paths = Paths();
         std::vector<std::wstring> excluded;
         Check(ReadExcludedInterfaces(excluded));
@@ -132,21 +132,13 @@ public:
             if (std::any_of(adapters.begin(), adapters.end(), [&](const Adapter& adapter) {
                     return adapter.guid == guid;
                 })) continue;
-            NET_LUID luid{};
-            GUID roundTrip{};
-            CheckWin32(ConvertInterfaceGuidToLuid(&guid, &luid));
-            CheckWin32(ConvertInterfaceLuidToGuid(&luid, &roundTrip));
-            if (!luid.Value || roundTrip != guid) throw Error{ HRESULT_FROM_WIN32(ERROR_RETRY) };
-            MIB_IF_ROW2 row{};
-            row.InterfaceLuid = luid;
-            CheckWin32(GetIfEntry2(&row));
-            if (row.InterfaceGuid != guid || row.InterfaceLuid.Value != luid.Value) {
-                throw Error{ HRESULT_FROM_WIN32(ERROR_RETRY) };
-            }
-            adapters.push_back({guid, luid.Value, row.AdminStatus == NET_IF_ADMIN_STATUS_UP, false, row.Alias});
+            const auto row = QueryAdapter(guid);
+            adapters.push_back({guid, row.InterfaceLuid.Value, row.AdminStatus == NET_IF_ADMIN_STATUS_UP,
+                                false, row.Alias, CompatibleMedia(row.MediaType)});
         }
         auto targets = SelectBindingTargets(bindings, adapters);
         MarkExcludedByName(targets, excluded);
+        if (snapshot) *snapshot = std::move(bindings);
         return targets;
     }
     Configuration ReadConfiguration() override {
@@ -165,6 +157,7 @@ public:
     void Disarm() override { WriteFlag(L"AllowBindings", 0); }
     void Arm() override { WriteFlag(L"AllowBindings", 1); }
     void SetBinding(const Adapter& adapter, bool enabled) override {
+        if (enabled && !ShouldEnable(adapter)) throw Error{ HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) };
         auto paths = Paths();
         unsigned targets = 0;
         bool changed = false, reboot = false;
@@ -173,11 +166,15 @@ public:
             ++targets;
             if (entry.binding.enabled == enabled) continue;
             if (Stopped()) throw Error{ HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED) };
-            NET_LUID current{};
-            GUID roundTrip{};
-            if (ConvertInterfaceGuidToLuid(&adapter.guid, &current) != NO_ERROR ||
-                current.Value != adapter.luid || ConvertInterfaceLuidToGuid(&current, &roundTrip) != NO_ERROR ||
-                roundTrip != adapter.guid) throw Error{ HRESULT_FROM_WIN32(ERROR_RETRY) };
+            if (enabled) {
+                VerifyEnableAdapter(adapter);
+            } else {
+                NET_LUID current{};
+                GUID roundTrip{};
+                if (ConvertInterfaceGuidToLuid(&adapter.guid, &current) != NO_ERROR ||
+                    current.Value != adapter.luid || ConvertInterfaceLuidToGuid(&current, &roundTrip) != NO_ERROR ||
+                    roundTrip != adapter.guid) throw Error{ HRESULT_FROM_WIN32(ERROR_RETRY) };
+            }
             const auto hr = entry.path->Enable(enabled ? TRUE : FALSE);
             Check(hr);
             if (hr != S_OK && hr != NETCFG_S_REBOOT) throw Error{ E_UNEXPECTED };
@@ -216,10 +213,6 @@ detail::Targets detail::FindWindowsMissing(const std::atomic<bool>& stopped, std
 std::optional<detail::Adapter> detail::InspectWindowsAddition(const std::atomic<bool>& stopped, uint64_t luid,
                                                             std::span<const AttachedAdapter> attached) {
     if (stopped.load()) throw Error{HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED)};
-    MIB_IF_ROW2 row{};
-    row.InterfaceLuid.Value = luid;
-    CheckWin32(GetIfEntry2(&row));
-    // Совместимость определяет путь NetCfg, а не физический тип или имя интерфейса.
     WindowsSystem system(stopped);
     return InspectAddition(system, luid, attached);
 }

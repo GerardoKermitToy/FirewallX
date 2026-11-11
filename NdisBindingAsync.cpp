@@ -81,7 +81,8 @@ Targets TargetResolver::Resolve(const std::atomic<bool>& stopped, Query query, D
             throw Error{ HRESULT_FROM_WIN32(ERROR_TIMEOUT) };
         }
         const DWORD remaining = timeoutMs - static_cast<DWORD>(elapsed);
-        const DWORD result = WaitForSingleObject(work->done, remaining < 50 ? remaining : 50);
+        // Проверяем отмену не чаще раза за 250 мс; завершившийся запрос будит сразу.
+        const DWORD result = WaitForSingleObject(work->done, remaining < 250 ? remaining : 250);
         if (result == WAIT_TIMEOUT) continue;
         if (result != WAIT_OBJECT_0) {
             const auto error = HRESULT_FROM_WIN32(GetLastError());
