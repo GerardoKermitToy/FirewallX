@@ -199,6 +199,7 @@
 #define IDS_PRESET_POWERPOINT             2290
 #define IDS_PRESET_WORD                   2291
 #define IDS_PRESET_RULE_HTTPS_HTTP        2292
+#define IDS_PRESET_GEOLOCATION            2293
 
 /* Группы интерфейсов; все переводы также в RulePresets.rc. */
 #define IDS_INTERFACE_UNKNOWN             2110

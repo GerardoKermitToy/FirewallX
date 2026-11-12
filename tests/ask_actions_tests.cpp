@@ -178,7 +178,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_VISUAL_STUDIO_WEB; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_GEOLOCATION; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -3751,6 +3751,121 @@ void TestCapturedServicePresets() {
               "captured service preset queried SCM with a mismatched process handle");
         SetServices(request.pid, {});
     }
+    SetUiLang(previous);
+}
+
+void TestGeolocationPreset() {
+    const UiLang previous = CurrentUiLang();
+    SetUiLang(UiLang::English);
+    AskRequest request = Request(SystemDirFile(L"svchost.exe"), Proto::Tcp, 443, L"4.208.231.73");
+    request.key.local = Ip(L"192.168.0.196");
+    request.key.lport = 1570;
+    request.interfaceName = std::make_shared<const std::wstring>(L"Captured Wi-Fi");
+    request.conditionFlags = 1;
+    SetServices(request.pid, {L"lfsvc"});
+
+    const auto offered = [](const AskRequest& connection) {
+        const auto choices = RulePresets::Suggest(connection);
+        return std::any_of(choices.begin(), choices.end(), [](const auto& choice) {
+            return choice.titleId == IDS_PRESET_GEOLOCATION;
+        });
+    };
+    const auto choices = RulePresets::Suggest(request);
+    const auto& preset = ChoiceOf(choices, IDS_PRESET_GEOLOCATION);
+    Check(preset.title == L"Geolocation: HTTPS / HTTP (lfsvc)" && preset.rules.size() == 1,
+          "geolocation preset lost its title or single rule");
+    const Rule& rule = preset.rules.front();
+    Check(rule.scope == RuleScope::App && rule.appPath == request.appPath &&
+          rule.action == RuleAction::Allow && rule.proto == Proto::Tcp && rule.dir == Dir::Out &&
+          rule.conds == (CondProto | CondDirection | CondService | CondRemotePort) &&
+          rule.services.size() == 1 && rule.services[0].name == L"lfsvc" &&
+          rule.remotePorts.size() == 2 && rule.remotePorts[0].from == 443 &&
+          rule.remotePorts[0].to == 443 && rule.remotePorts[1].from == 80 &&
+          rule.remotePorts[1].to == 80 && rule.localPorts.empty() &&
+          rule.remoteAddrs.empty() && rule.localAddrs.empty() &&
+          rule.interfaceName.empty() && rule.conditionFlags == 0 && !rule.autoName,
+          "geolocation rule lost a condition or pinned a captured endpoint");
+    const auto matches = [&](const AskRequest& flow) {
+        return RuleStore::MatchesRule(rule, flow.ToQuery());
+    };
+    for (uint16_t port : {uint16_t{443}, uint16_t{80}}) {
+        for (const auto& [local, remote] : {
+                std::pair{L"192.0.2.10", L"198.51.100.20"},
+                std::pair{L"2001:db8::10", L"2001:db8::20"}}) {
+            AskRequest flow = request;
+            flow.key.rport = port;
+            flow.key.local = Ip(local);
+            flow.key.remote = Ip(remote);
+            flow.key.lport = 60000;
+            flow.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
+            flow.conditionFlags.reset();
+            Check(offered(flow) && matches(flow),
+                  "geolocation preset missed a port or depended on captured conditions");
+            flow.dir = Dir::In;
+            Check(matches(flow), "geolocation rule changed direction handling for port-restricted allows");
+        }
+    }
+    for (const auto& [proto, port] : {
+            std::pair{Proto::Udp, uint16_t{443}}, std::pair{Proto::Udp, uint16_t{80}},
+            std::pair{Proto::Tcp, uint16_t{8080}}}) {
+        AskRequest flow = request;
+        flow.key.proto = proto;
+        flow.key.rport = port;
+        Check(!offered(flow) && !matches(flow), "geolocation preset accepted another protocol or port");
+    }
+    AskRequest other = request;
+    other.appPath = L"C:\\Apps\\svchost.exe";
+    Check(!offered(other) && !matches(other), "geolocation preset accepted a fake svchost");
+    other = request;
+    other.ownerAmbiguous = true;
+    Check(!offered(other), "ambiguous owner received a geolocation preset");
+
+    RuleStore store;
+    Check(RulePresets::Apply(store, request, preset.rules) == 1 && store.Count() == 1,
+          "geolocation preset was not applied");
+    RuleAction verdict = RuleAction::Block;
+    Check(store.MatchVerdict(request.ToQuery(), verdict) && verdict == RuleAction::Allow,
+          "geolocation preset did not produce an allow verdict");
+    const uint64_t version = store.version();
+    size_t count = 0;
+    const UiLangInfo* languages = UiLangs(count);
+    for (size_t i = 0; i < count; ++i) {
+        SetUiLang(languages[i].lang);
+        const auto translated = RulePresets::Suggest(request);
+        const auto& localized = ChoiceOf(translated, IDS_PRESET_GEOLOCATION);
+        const std::wstring title = LoadStringRes(IDS_PRESET_GEOLOCATION);
+        const std::wstring name = LoadStringRes(IDS_PRESET_RULE_HTTPS_HTTP);
+        Check(!title.empty() && localized.title == LoadStringResFmt(IDS_PRESET_SERVICE_TITLE_FMT,
+                  title.c_str(), L"lfsvc") && localized.rules.size() == 1 &&
+              localized.rules[0].name == LoadStringResFmt(IDS_PRESET_SERVICE_RULE_NAME_FMT,
+                  title.c_str(), L"lfsvc", name.c_str()) &&
+              RulePresets::Apply(store, request, localized.rules) == 0 &&
+              store.Count() == 1 && store.version() == version,
+              "localized geolocation preset was lost or duplicated");
+    }
+    SetUiLang(UiLang::Russian);
+    Check(LoadStringRes(IDS_PRESET_GEOLOCATION) == L"Геолокация: HTTPS / HTTP",
+          "geolocation Russian title was decoded incorrectly");
+    SetUiLang(UiLang::English);
+    SetServices(request.pid, {L"AnotherService"});
+    Check(!offered(request) && !matches(request), "geolocation preset leaked to another service");
+    SetServices(request.pid, {L"lfsvc", L"AnotherService"});
+    Check(!offered(request) && !matches(request), "geolocation preset guessed a shared service");
+    SetServices(request.pid, {});
+    Check(!offered(request) && !matches(request), "geolocation preset accepted an unknown service");
+    SetServices(request.pid, {L"LfSvC"});
+    Check(offered(request) && matches(request), "geolocation service matching was case-sensitive");
+    SetServices(request.pid, {L"lfsvc"});
+    other = request;
+    other.process.reset();
+    const size_t reads = serviceReads;
+    Check(!offered(other) && !matches(other) && serviceReads == reads,
+          "geolocation preset queried SCM without the original process handle");
+    other = request;
+    ++other.pid;
+    Check(!offered(other) && serviceReads == reads,
+          "geolocation preset queried SCM with a mismatched process handle");
+    SetServices(request.pid, {});
     SetUiLang(previous);
 }
 
@@ -7850,6 +7965,7 @@ int main(int argc, char** argv) {
             TestCapturedConnectionPresets();
             TestDnscacheMdnsPreset();
             TestCapturedServicePresets();
+            TestGeolocationPreset();
             std::cout << "Captured connection preset tests passed\n";
             WSACleanup();
             return 0;
@@ -7915,6 +8031,7 @@ int main(int argc, char** argv) {
         TestCapturedConnectionPresets();
         TestDnscacheMdnsPreset();
         TestCapturedServicePresets();
+        TestGeolocationPreset();
         TestNvidiaPresets();
         TestLsassServiceGroupPreset();
         TestBraveMdnsPresets();

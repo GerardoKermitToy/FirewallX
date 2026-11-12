@@ -549,6 +549,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_APPX_DEPLOYMENT, L"svchost.exe", systemWeb, Host::Service, L"AppXSvc"},
     {IDS_PRESET_LANGUAGE_PACKS, L"svchost.exe", languagePacks, Host::Service, L"LxpSvc"},
     {IDS_PRESET_CAPABILITY_ACCESS, L"svchost.exe", capabilityAccess, Host::Service, L"camsvc"},
+    {IDS_PRESET_GEOLOCATION, L"svchost.exe", httpsOrHttp, Host::Service, L"lfsvc"},
     {IDS_PRESET_PUSH_SERVICE, L"svchost.exe", httpsOnly, Host::Service, L"WpnService"},
     {IDS_PRESET_PUSH_SERVICE, L"svchost.exe", httpsOnly, Host::Service, L"WpnUserService_*"},
     {IDS_PRESET_LICENSE_MANAGER, L"svchost.exe", httpsOnly, Host::Service, L"LicenseManager"},
