@@ -270,8 +270,21 @@ protected:
             if (sel < 0) return true;
             // Подтверждения нет: правки живут в локальном списке и попадают
             // в хранилище только по «OK», а «Отмена» отбрасывает их целиком.
+            // Удаляем только одну строку, чтобы не сбрасывать прокрутку списка.
+            HWND lv = Item(IDC_LIST);
+            loading_ = true;
+            SendMessageW(lv, WM_SETREDRAW, FALSE, 0);
             rules.erase(rules.begin() + sel);
-            Fill();
+            interfaces_.Refresh(rules);
+            ListView_DeleteItem(lv, sel);
+            for (int row = sel; row < static_cast<int>(rules.size()); ++row) {
+                rules[static_cast<size_t>(row)].priority = row;
+                const std::wstring num = std::to_wstring(row + 1);
+                ListView_SetItemText(lv, row, 0, const_cast<LPWSTR>(num.c_str()));
+            }
+            SendMessageW(lv, WM_SETREDRAW, TRUE, 0);
+            InvalidateRect(lv, nullptr, TRUE);
+            loading_ = false;
             SelectRow(sel < static_cast<int>(rules.size())
                         ? sel : static_cast<int>(rules.size()) - 1);
             return true;

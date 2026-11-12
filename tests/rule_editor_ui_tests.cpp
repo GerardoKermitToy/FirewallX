@@ -494,6 +494,132 @@ void List(UiLang language, bool preview, bool empty = false) {
     probe.Finish(timer);
 }
 
+struct RuleDeletionProbe {
+    static inline RuleDeletionProbe* active = nullptr;
+    bool clear = false, inspected = false;
+    int removed = -1;
+    std::string error;
+
+    void Check(bool condition, const char* message) {
+        if (!condition && error.empty()) error = message;
+    }
+
+    void Inspect(HWND dialog) {
+        HWND list = GetDlgItem(dialog, 400);
+        const int initialCount = ListView_GetItemCount(list);
+        if (clear) {
+            while (ListView_GetItemCount(list) > 0) {
+                const int previous = ListView_GetItemCount(list);
+                SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(404, BN_CLICKED), 0);
+                if (ListView_GetItemCount(list) != previous - 1) {
+                    Check(false, "could not delete all rules");
+                    break;
+                }
+            }
+            Check(ListView_GetNextItem(list, -1, LVNI_SELECTED) == -1,
+                  "empty rule list still has a selection");
+            Check(!IsWindowEnabled(GetDlgItem(dialog, 404)), "delete remains enabled for an empty list");
+            return;
+        }
+
+        const int page = ListView_GetCountPerPage(list);
+        Check(initialCount > page * 2 && page > 2, "scroll test needs more rules");
+        if (initialCount <= page * 2 || page <= 2) return;
+        Check(ListView_EnsureVisible(list, initialCount / 2, FALSE) != FALSE,
+              "could not scroll the rule list");
+        const int top = ListView_GetTopIndex(list);
+        removed = top + page / 2;
+        ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+        ListView_SetItemState(list, removed, LVIS_SELECTED | LVIS_FOCUSED,
+                              LVIS_SELECTED | LVIS_FOCUSED);
+        Check(top > 0 && removed + 2 < initialCount, "could not select a middle rule");
+
+        // Первая операция вызывается кнопкой, вторая — клавишей Del.
+        SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(404, BN_CLICKED), 0);
+        Check(ListView_GetItemCount(list) == initialCount - 1, "delete did not remove one rule");
+        Check(ListView_GetTopIndex(list) == top, "rule list scrolled after deleting a visible rule");
+        Check(ListView_GetNextItem(list, -1, LVNI_SELECTED) == removed,
+              "delete did not select the next rule");
+        wchar_t text[128]{};
+        ListView_GetItemText(list, removed, 1, text, static_cast<int>(std::size(text)));
+        Check(text == L"Rule " + std::to_wstring(removed + 1), "wrong rule after deletion");
+        Check((ListView_GetCheckState(list, removed) != FALSE) == ((removed + 1) % 3 != 0),
+              "rule enabled state changed after deletion");
+        ListView_GetItemText(list, removed, 0, text, static_cast<int>(std::size(text)));
+        Check(text == std::to_wstring(removed + 1), "rule number was not updated");
+        GetWindowTextW(GetDlgItem(dialog, 408), text, static_cast<int>(std::size(text)));
+        Rule selected = Sample();
+        selected.priority = removed;
+        Check(text == RuleScopeLine(selected), "selected rule priority was not updated");
+
+        SendMessageW(list, WM_KEYDOWN, VK_DELETE, 0);
+        Check(ListView_GetItemCount(list) == initialCount - 2, "Del did not remove the next rule");
+        Check(ListView_GetTopIndex(list) == top, "rule list scrolled after pressing Del");
+        Check(ListView_GetNextItem(list, -1, LVNI_SELECTED) == removed,
+              "Del did not select the next rule");
+
+        const int last = ListView_GetItemCount(list) - 1;
+        ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+        ListView_SetItemState(list, last, LVIS_SELECTED | LVIS_FOCUSED,
+                              LVIS_SELECTED | LVIS_FOCUSED);
+        ListView_EnsureVisible(list, last, FALSE);
+        const int bottomTop = ListView_GetTopIndex(list);
+        SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(404, BN_CLICKED), 0);
+        const int newTop = ListView_GetTopIndex(list);
+        Check(newTop <= bottomTop && newTop >= bottomTop - 1,
+              "rule list jumped after deleting its last rule");
+        Check(ListView_GetNextItem(list, -1, LVNI_SELECTED) == last - 1,
+              "deleting the last rule did not select its predecessor");
+    }
+
+    static void CALLBACK Tick(HWND, UINT, UINT_PTR timer, DWORD) {
+        HWND dialog = Ui::ModalWindow();
+        if (!dialog || !active) return;
+        KillTimer(nullptr, timer);
+        active->inspected = true;
+        active->Inspect(dialog);
+        PostMessageW(dialog, WM_COMMAND, active->clear ? IDCANCEL : IDOK, 0);
+    }
+};
+
+void RuleDeletion() {
+    SetUiLang(UiLang::English);
+    RuleStore store;
+    Rule rule = Sample();
+    std::vector<Rule> rules;
+    for (int i = 0; i < 80; ++i) {
+        rule.autoName = false;
+        rule.name = L"Rule " + std::to_wstring(i);
+        rule.enabled = i % 3 != 0;
+        rules.push_back(rule);
+    }
+    store.ReplaceApp(rule.appPath, rule.appName, rules);
+
+    for (bool clear : {false, true}) {
+        RuleDeletionProbe probe;
+        probe.clear = clear;
+        RuleDeletionProbe::active = &probe;
+        const UINT_PTR timer = SetTimer(nullptr, 0, 20, RuleDeletionProbe::Tick);
+        Require(timer != 0, "could not start rule deletion probe");
+        AppRulesEditor::Run(nullptr, GetModuleHandleW(nullptr), store, rule.appPath, rule.appName);
+        KillTimer(nullptr, timer);
+        RuleDeletionProbe::active = nullptr;
+        Require(probe.inspected, "rule deletion probe was not called");
+        if (!probe.error.empty()) throw std::runtime_error(probe.error);
+        if (!clear) {
+            rules.erase(rules.begin() + probe.removed, rules.begin() + probe.removed + 2);
+            rules.pop_back();
+        }
+        const auto saved = store.ForApp(rule.appPath);
+        Require(saved.size() == rules.size(), "saved rule count changed unexpectedly");
+        for (size_t i = 0; i < saved.size(); ++i) {
+            Require(saved[i].name == rules[i].name && saved[i].enabled == rules[i].enabled &&
+                    saved[i].priority == static_cast<int>(i),
+                    "saved rule order, priority or enabled state changed unexpectedly");
+        }
+    }
+}
+
 void FullExplanation(UiLang language) {
     SetUiLang(language);
     Rule rule = Sample();
@@ -547,6 +673,7 @@ void TestRuleEditorLayout() {
         List(languages[i].lang, false);
     }
     List(UiLang::English, false, true);
+    RuleDeletion();
     for (UiLang language : {UiLang::English, UiLang::Russian, UiLang::Arabic}) {
         ConditionDialogs(language);
         FullExplanation(language);

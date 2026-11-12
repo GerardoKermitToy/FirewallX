@@ -1,5 +1,6 @@
 #include "SettingsWindow.h"
 #include "AppRulesEditor.h"
+#include "RuleGroupListUi.h"
 #include "StringRes.h"
 #include "UiKit.h"
 #include "TreeList.h"
@@ -550,7 +551,7 @@ protected:
         }
 
         if (id == IDC_FILTER && code == EN_CHANGE) {
-            Fill();
+            Fill(true);
             return true;
         }
 
@@ -873,7 +874,7 @@ private:
         }
         ShowWindow(Item(IDC_ADD), index == 1 ? SW_SHOW : SW_HIDE);
         ShowWindow(Item(IDC_CLEANUP), index == 1 ? SW_SHOW : SW_HIDE);
-        if (rules) Fill();
+        if (rules) Fill(true);
     }
 
     int Selected() const {
@@ -882,7 +883,7 @@ private:
         return (i >= 0 && i < static_cast<int>(shown_.size())) ? i : -1;
     }
 
-    void Fill() {
+    void Fill(bool resetScroll = false) {
         const int selectedRow = Selected();
         const AppEntry selected = selectedRow >= 0 ? shown_[static_cast<size_t>(selectedRow)] : AppEntry{};
         const std::wstring filter = FoldCaseCopy(Text(IDC_FILTER));
@@ -903,31 +904,8 @@ private:
             shown_.push_back(e);
         }
 
-        HWND lv = Item(IDC_LIST);
-        SendMessageW(lv, WM_SETREDRAW, FALSE, 0);
-        ListView_DeleteAllItems(lv);
-        int row = 0;
-        for (const AppEntry& e : shown_) {
-            LVITEMW item{};
-            item.mask = LVIF_TEXT | LVIF_IMAGE;
-            item.iItem = row;
-            item.iImage = icons_.Get(e.interfaceGroup ? std::wstring() : e.path);
-            item.pszText = const_cast<LPWSTR>(e.name.c_str());
-            ListView_InsertItem(lv, &item);
-            if (selectedRow >= 0 && selected.path == e.path && selected.global == e.global &&
-                selected.postapp == e.postapp && selected.interfaceGroup == e.interfaceGroup)
-                ListView_SetItemState(lv, row, LVIS_SELECTED | LVIS_FOCUSED,
-                                     LVIS_SELECTED | LVIS_FOCUSED);
-            std::wstring count = std::to_wstring(e.rules);
-            if (e.enabled != e.rules)
-                count += L" (" + std::to_wstring(e.enabled) +
-                         LoadStringRes(IDS_ALLRULES_ENABLED_SUFFIX);
-            ListView_SetItemText(lv, row, 1,
-                                 const_cast<LPWSTR>(count.c_str()));
-            ++row;
-        }
-        SendMessageW(lv, WM_SETREDRAW, TRUE, 0);
-        InvalidateRect(lv, nullptr, TRUE);
+        RuleGroupListUi::Fill(Item(IDC_LIST), icons_, shown_,
+                              selectedRow >= 0 ? &selected : nullptr, resetScroll);
 
         // Фильтр может скрыть специальные группы, поэтому считаем приложения
         // отдельно в полном и отфильтрованном списках.

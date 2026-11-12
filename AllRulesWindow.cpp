@@ -1,5 +1,6 @@
 #include "AllRulesWindow.h"
 #include "AppRulesEditor.h"
+#include "RuleGroupListUi.h"
 #include "StringRes.h"
 #include "UiKit.h"
 #include <commctrl.h>
@@ -84,7 +85,7 @@ protected:
     }
 
     bool OnCommand(int id, int code) override {
-        if (id == IDC_FILTER && code == EN_CHANGE) { Fill(); return true; }
+        if (id == IDC_FILTER && code == EN_CHANGE) { Fill(true); return true; }
         switch (id) {
         case IDC_RULES: {
             const int sel = Selected();
@@ -248,7 +249,9 @@ private:
         return (i >= 0 && i < static_cast<int>(shown_.size())) ? i : -1;
     }
 
-    void Fill() {
+    void Fill(bool resetScroll = false) {
+        const int selectedRow = Selected();
+        const AppEntry selected = selectedRow >= 0 ? shown_[static_cast<size_t>(selectedRow)] : AppEntry{};
         const std::wstring filter = FoldCaseCopy(Text(IDC_FILTER));
         const std::vector<AppEntry> all = store->Apps();
 
@@ -260,26 +263,8 @@ private:
             shown_.push_back(e);
         }
 
-        HWND lv = Item(IDC_LIST);
-        SendMessageW(lv, WM_SETREDRAW, FALSE, 0);
-        ListView_DeleteAllItems(lv);
-        int row = 0;
-        for (const AppEntry& e : shown_) {
-            LVITEMW it{};
-            it.mask = LVIF_TEXT | LVIF_IMAGE;
-            it.iItem = row;
-            it.iImage = icons_.Get(e.path);
-            it.pszText = const_cast<LPWSTR>(e.name.c_str());
-            ListView_InsertItem(lv, &it);
-            std::wstring cnt = std::to_wstring(e.rules);
-            if (e.enabled != e.rules)
-                cnt += L" (" + std::to_wstring(e.enabled) +
-                       LoadStringRes(IDS_ALLRULES_ENABLED_SUFFIX);
-            ListView_SetItemText(lv, row, 1, const_cast<LPWSTR>(cnt.c_str()));
-            ++row;
-        }
-        SendMessageW(lv, WM_SETREDRAW, TRUE, 0);
-        InvalidateRect(lv, nullptr, TRUE);
+        RuleGroupListUi::Fill(Item(IDC_LIST), icons_, shown_,
+                              selectedRow >= 0 ? &selected : nullptr, resetScroll);
 
         // Считаем приложения отдельно в полном и отфильтрованном списках:
         // фильтр может скрыть любую из специальных групп Global и PostApp.

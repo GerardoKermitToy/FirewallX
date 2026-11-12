@@ -1,5 +1,6 @@
 // Настоящие окна настроек и редакторов запускаются без драйвера и базы пользователя.
 #include "SettingsWindow.h"
+#include "AllRulesWindow.h"
 #include "Settings.h"
 #include "StringRes.h"
 #include "TreeList.h"
@@ -239,8 +240,9 @@ struct Probe {
 
     static BOOL CALLBACK CloseWindow(HWND window, LPARAM) {
         const std::wstring title = Text(window);
-        if (title == LoadStringRes(IDS_SETTINGS_TITLE) || title == LoadStringRes(IDS_RULE_EDITOR_TITLE) ||
-            title == LoadStringRes(IDS_RED_TITLE_CREATE) || title == LoadStringRes(IDS_RED_TITLE_EDIT))
+        if (title == LoadStringRes(IDS_SETTINGS_TITLE) || title == LoadStringRes(IDS_ALLRULES_EDITOR_TITLE) ||
+            title == LoadStringRes(IDS_RULE_EDITOR_TITLE) || title == LoadStringRes(IDS_RED_TITLE_CREATE) ||
+            title == LoadStringRes(IDS_RED_TITLE_EDIT))
             PostMessageW(window, WM_CLOSE, 0, 0);
         return TRUE;
     }
@@ -250,6 +252,171 @@ struct Probe {
         error = message;
         step = Step::Failed;
         EnumThreadWindows(GetCurrentThreadId(), CloseWindow, 0);
+    }
+};
+
+struct ScrollProbe {
+    enum class Step { Window, Editor, Edited, ConfirmDelete, Deleted, Done, Failed };
+    static inline ScrollProbe* active = nullptr;
+    Step step = Step::Window;
+    bool standalone = false;
+    RuleStore* store = nullptr;
+    HWND settings = nullptr, editor = nullptr;
+    AppEntry selected;
+    std::wstring nextName;
+    int initialCount = 0, top = 0, row = 0;
+    size_t changes = 0;
+    ULONGLONG deadline = 0;
+    std::string error;
+
+    int ListId() const { return standalone ? 501 : 603; }
+    int FilterId() const { return standalone ? 500 : 602; }
+    int RulesId() const { return standalone ? 502 : 604; }
+    int DeleteId() const { return standalone ? 504 : 606; }
+
+    void Tick() {
+        if (step == Step::Done || step == Step::Failed) return;
+        Probe::Check(GetTickCount64() < deadline, "application list scroll test timed out");
+        switch (step) {
+        case Step::Window: {
+            settings = Probe::Window(standalone ? IDS_ALLRULES_EDITOR_TITLE : IDS_SETTINGS_TITLE);
+            if (!settings) return;
+            if (!standalone) {
+                HWND tabs = GetDlgItem(settings, 600);
+                TabCtrl_SetCurSel(tabs, 1);
+                NMHDR changed{tabs, 600, TCN_SELCHANGE};
+                SendMessageW(settings, WM_NOTIFY, 600, reinterpret_cast<LPARAM>(&changed));
+            }
+            HWND list = GetDlgItem(settings, ListId());
+            initialCount = ListView_GetItemCount(list);
+            const int page = ListView_GetCountPerPage(list);
+            Probe::Check(page > 2 && initialCount > page * 2, "settings scroll test needs more applications");
+            Probe::Check(ListView_EnsureVisible(list, initialCount / 2, FALSE) != FALSE,
+                         "could not scroll the application list");
+            top = ListView_GetTopIndex(list);
+            row = top + page / 2;
+            const auto apps = store->Apps();
+            Probe::Check(top > 0 && row + 1 < static_cast<int>(apps.size()),
+                         "could not select a middle application");
+            selected = apps[static_cast<size_t>(row)];
+            nextName = apps[static_cast<size_t>(row + 1)].name;
+            ListView_SetItemState(list, row, LVIS_SELECTED | LVIS_FOCUSED,
+                                  LVIS_SELECTED | LVIS_FOCUSED);
+            step = Step::Editor;
+            Probe::Command(settings, RulesId());
+            break;
+        }
+        case Step::Editor:
+            editor = Probe::Window(IDS_RULE_EDITOR_TITLE, settings);
+            if (!editor) return;
+            Probe::Check(ListView_GetItemCount(GetDlgItem(editor, 400)) == 1,
+                         "opened the wrong application's rules");
+            ListView_SetCheckState(GetDlgItem(editor, 400), 0, FALSE);
+            step = Step::Edited;
+            Probe::Command(editor, IDOK);
+            break;
+        case Step::Edited: {
+            if (IsWindow(editor) || !IsWindowEnabled(settings)) return;
+            HWND list = GetDlgItem(settings, ListId());
+            Probe::Check(ListView_GetTopIndex(list) == top, "application list scrolled after editing rules");
+            Probe::Check(ListView_GetNextItem(list, -1, LVNI_SELECTED) == row,
+                         "edited application is no longer selected");
+            wchar_t value[256]{};
+            ListView_GetItemText(list, row, 0, value, static_cast<int>(std::size(value)));
+            Probe::Check(value == selected.name, "edited application changed rows");
+            ListView_GetItemText(list, row, 1, value, static_cast<int>(std::size(value)));
+            Probe::Check(value == L"1 (0" + LoadStringRes(IDS_ALLRULES_ENABLED_SUFFIX),
+                         "edited application rule count was not updated");
+            const auto rules = store->ForApp(selected.path);
+            Probe::Check(rules.size() == 1 && !rules[0].enabled && changes == 1,
+                         "edited application rule was not saved");
+
+            // Фильтр начинает показ с первых совпадений и сохраняет выделение.
+            HWND filter = GetDlgItem(settings, FilterId());
+            SetWindowTextW(filter, L"Application 1");
+            Probe::Check(ListView_GetItemCount(list) == initialCount - 2 &&
+                         ListView_GetTopIndex(list) == 0 &&
+                         ListView_GetNextItem(list, -1, LVNI_SELECTED) == row - 1,
+                         "filter did not show the first matching applications");
+            SetWindowTextW(filter, selected.name.c_str());
+            Probe::Check(ListView_GetItemCount(list) == 1 &&
+                         ListView_GetNextItem(list, -1, LVNI_SELECTED) == 0,
+                         "filter did not preserve the selected application");
+            SetWindowTextW(filter, L"");
+            Probe::Check(ListView_GetItemCount(list) == initialCount &&
+                         ListView_GetNextItem(list, -1, LVNI_SELECTED) == row,
+                         "clearing the filter did not restore the selected application");
+            ListView_EnsureVisible(list, row, FALSE);
+            top = ListView_GetTopIndex(list);
+            step = Step::ConfirmDelete;
+            Probe::Command(settings, DeleteId());
+            break;
+        }
+        case Step::ConfirmDelete: {
+            HWND confirm = Probe::Window(IDS_RULE_EDITOR_TITLE, settings);
+            if (!confirm) return;
+            Probe::Check(GetDlgItem(confirm, IDYES) != nullptr, "application deletion did not ask for confirmation");
+            step = Step::Deleted;
+            Probe::Command(confirm, IDYES);
+            break;
+        }
+        case Step::Deleted: {
+            if (!IsWindowEnabled(settings)) return;
+            HWND list = GetDlgItem(settings, ListId());
+            Probe::Check(ListView_GetItemCount(list) == initialCount - 1 &&
+                         ListView_GetTopIndex(list) == top,
+                         "application list scrolled after deleting an application");
+            Probe::Check(ListView_GetNextItem(list, -1, LVNI_SELECTED) == -1,
+                         "deleted application is still selected");
+            wchar_t value[256]{};
+            ListView_GetItemText(list, row, 0, value, static_cast<int>(std::size(value)));
+            Probe::Check(value == nextName && store->ForApp(selected.path).empty() && changes == 2,
+                         "wrong application was deleted from settings");
+
+            // Фильтр и переключение вкладок используют тот же список.
+            HWND filter = GetDlgItem(settings, FilterId());
+            SetWindowTextW(filter, L"Application 179.exe");
+            Probe::Check(ListView_GetItemCount(list) == 1, "settings filter returned the wrong rows");
+            ListView_GetItemText(list, 0, 0, value, static_cast<int>(std::size(value)));
+            Probe::Check(value == std::wstring(L"Application 179.exe"), "settings filter showed stale data");
+            SetWindowTextW(filter, L"");
+            Probe::Check(ListView_GetItemCount(list) == initialCount - 1, "clearing the filter lost applications");
+            if (!standalone) {
+                HWND tabs = GetDlgItem(settings, 600);
+                TabCtrl_SetCurSel(tabs, 2);
+                NMHDR changed{tabs, 600, TCN_SELCHANGE};
+                SendMessageW(settings, WM_NOTIFY, 600, reinterpret_cast<LPARAM>(&changed));
+                const auto interfaces = store->Interfaces();
+                Probe::Check(ListView_GetItemCount(list) == static_cast<int>(interfaces.size()),
+                             "interface tab retained application rows");
+                for (int i = 0; i < static_cast<int>(interfaces.size()); ++i) {
+                    ListView_GetItemText(list, i, 0, value, static_cast<int>(std::size(value)));
+                    Probe::Check(value == interfaces[static_cast<size_t>(i)].name, "interface tab showed stale data");
+                }
+                TabCtrl_SetCurSel(tabs, 1);
+                SendMessageW(settings, WM_NOTIFY, 600, reinterpret_cast<LPARAM>(&changed));
+                Probe::Check(ListView_GetItemCount(list) == initialCount - 1 &&
+                             ListView_GetTopIndex(list) == 0,
+                             "rules tab did not restore applications from the start");
+            }
+            step = Step::Done;
+            Probe::Command(settings, IDOK);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    static void CALLBACK Timer(HWND, UINT, UINT_PTR, DWORD) {
+        if (!active) return;
+        try {
+            active->Tick();
+        } catch (const std::exception& error) {
+            active->error = error.what();
+            active->step = Step::Failed;
+            EnumThreadWindows(GetCurrentThreadId(), Probe::CloseWindow, 0);
+        }
     }
 };
 
@@ -265,6 +432,37 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
 }
 
 } // namespace
+
+void TestRuleListScroll(bool standalone) {
+    RuleStore store;
+    for (int i = 100; i < 180; ++i) {
+        Rule rule;
+        rule.scope = RuleScope::App;
+        rule.conds = CondNone;
+        rule.appName = L"Application " + std::to_wstring(i) + L".exe";
+        rule.appPath = L"C:\\Test\\" + rule.appName;
+        store.Add(rule);
+    }
+    ScrollProbe probe;
+    probe.standalone = standalone;
+    probe.store = &store;
+    probe.deadline = GetTickCount64() + 30000;
+    ScrollProbe::active = &probe;
+    const UINT_PTR timer = SetTimer(nullptr, 0, 20, ScrollProbe::Timer);
+    Probe::Check(timer != 0, "cannot start settings scroll test timer");
+    const bool changed = standalone
+        ? AllRulesWindow::Run(nullptr, GetModuleHandleW(nullptr), store, [&] { ++probe.changes; })
+        : SettingsWindow::Run(nullptr, GetModuleHandleW(nullptr), store,
+                              ListSkin::Classic, [&] { ++probe.changes; }, {});
+    KillTimer(nullptr, timer);
+    ScrollProbe::active = nullptr;
+    if (!probe.error.empty())
+        throw std::runtime_error(std::string(standalone ? "all rules: " : "settings: ") + probe.error);
+    Probe::Check(changed && probe.step == ScrollProbe::Step::Done,
+                 "application list scroll test did not complete");
+    std::cout << (standalone ? "all rules" : "settings")
+              << " scroll: edit, delete and filter passed\n";
+}
 
 void TestSettingsInheritanceOnly() {
     const std::wstring path = L"C:\\Test\\inheritance-only.exe";
@@ -296,6 +494,8 @@ void TestSettingsInheritanceOnly() {
 }
 
 void TestSettingsNdis() {
+    TestRuleListScroll(false);
+    TestRuleListScroll(true);
     TestSettingsInheritanceOnly();
     RuleStore store;
     for (RuleScope scope : { RuleScope::Global, RuleScope::App, RuleScope::PostApp, RuleScope::Interface }) {
