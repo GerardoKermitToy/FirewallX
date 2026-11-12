@@ -703,22 +703,58 @@ struct AppStorageTestAccess {
                                              HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr), nullptr);
         CheckAuto(window != nullptr, "cannot create timer window");
         f.app.hwnd_ = window;
-        const ULONGLONG deadline = f.app.autoRequests_.front().deadline;
-        CheckAuto(deadline > GetTickCount64(), "request deadline expired before the timer was scheduled");
+        const HWND otherWindow = CreateWindowExW(0, L"STATIC", L"", 0, 0, 0, 0, 0,
+                                                 HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr), nullptr);
+        CheckAuto(otherWindow != nullptr, "cannot create unrelated timer window");
+        // Таймер другого окна не должен прерывать ожидание этого окна.
+        constexpr UINT_PTR kOtherTimerId = 4;
+        CheckAuto(SetTimer(otherWindow, kOtherTimerId, 10, nullptr) != 0,
+                  "cannot start unrelated timer");
+        constexpr UINT_PTR kWatchdogTimerId = kAutoRulesTimerId + 1;
+        CheckAuto(SetTimer(window, kWatchdogTimerId, 8000, nullptr) != 0,
+                  "cannot start watchdog timer");
+        // Раннее сообщение не должно возвращать запрос раньше срока.
+        f.app.autoRequests_.front().deadline = GetTickCount64() + 10000;
         f.app.ScheduleAutoRulesTimer();
-        CheckAuto(MsgWaitForMultipleObjects(0, nullptr, FALSE, 8000, QS_TIMER) == WAIT_OBJECT_0,
-                  "automatic request timer did not fire");
+        CheckAuto(PostMessageW(window, WM_TIMER, kAutoRulesTimerId, 0) != FALSE,
+                  "cannot post early timer message");
         MSG message{};
-        CheckAuto(PeekMessageW(&message, window, WM_TIMER, WM_TIMER, PM_REMOVE) &&
-                  message.wParam == kAutoRulesTimerId && GetTickCount64() >= deadline,
-                  "automatic request timer fired before the deadline or used the wrong ID");
+        CheckAuto(GetMessageW(&message, window, WM_TIMER, WM_TIMER) > 0 &&
+                  message.wParam == kAutoRulesTimerId, "early timer message was not received");
+        KillTimer(window, kAutoRulesTimerId);
         f.app.ProcessAutoRules();
-        CheckAuto(f.app.queue_.contains(id) && Ingest::Instance().IsPending(id) &&
-                  f.app.rules_.Count() == 0 && verdicts.empty(), "timer did not return the request");
+        CheckAuto(f.app.queue_.empty() && Ingest::Instance().IsPending(id) &&
+                  f.app.autoRequests_.size() == 1 && f.app.rules_.Count() == 0 && verdicts.empty(),
+                  "early timer changed the pending request");
+
+        // Пятисекундный срок отдельно проверяется в TimedOutRequests.
+        const ULONGLONG deadline = GetTickCount64() + 250;
+        f.app.autoRequests_.front().deadline = deadline;
+        f.app.ScheduleAutoRulesTimer();
+        do {
+            CheckAuto(GetMessageW(&message, window, WM_TIMER, WM_TIMER) > 0,
+                      "cannot retrieve automatic request timer message");
+            CheckAuto(message.wParam != kWatchdogTimerId, "automatic request timer did not return the request");
+            CheckAuto(message.wParam == kAutoRulesTimerId, "automatic request timer used the wrong ID");
+            KillTimer(window, kAutoRulesTimerId);
+            f.app.ProcessAutoRules();
+            if (!f.app.queue_.contains(id))
+                CheckAuto(Ingest::Instance().IsPending(id) && f.app.autoRequests_.size() == 1 &&
+                          f.app.rules_.Count() == 0 && verdicts.empty(),
+                          "early timer changed the pending request");
+        } while (!f.app.queue_.contains(id));
+        CheckAuto(GetTickCount64() >= deadline && Ingest::Instance().IsPending(id) &&
+                  f.app.rules_.Count() == 0 && verdicts.empty(), "timer did not return the request on time");
+        MSG otherMessage{};
+        CheckAuto(PeekMessageW(&otherMessage, otherWindow, WM_TIMER, WM_TIMER, PM_REMOVE) &&
+                  otherMessage.wParam == kOtherTimerId, "unrelated timer did not fire");
         SetEvent(gate);
         CheckAuto(WaitForSingleObject(f.app.autoSignatureThread_, 30000) == WAIT_OBJECT_0,
                   "blocked signature check did not finish");
         f.app.ProcessAutoRules();
+        KillTimer(otherWindow, kOtherTimerId);
+        KillTimer(window, kWatchdogTimerId);
+        DestroyWindow(otherWindow);
         f.app.hwnd_ = nullptr;
         DestroyWindow(window);
         CloseHandle(gate);
@@ -1230,12 +1266,48 @@ RuleGenerator::Result CompleteImmediately(const std::atomic_bool&,
     return {};
 }
 
+RuleGenerator::Result FailGeneration(const std::atomic_bool&, const RuleGenerator::Progress&) {
+    throw 1;
+}
+
+struct GenerationDialogProbe {
+    unsigned visibleButtons = 0;
+    bool sawCancel = false;
+    bool inspected = false;
+    bool stayedOpen = false;
+    bool cancelDisabled = false;
+    HWND cancelButton = nullptr;
+};
+
+enum class GenerationCancel { Button, TitleBar, CloseMessage };
+GenerationDialogProbe generationDialogProbe;
+HANDLE generationDialogRelease = nullptr;
+DWORD generationDialogWait = WAIT_FAILED;
+GenerationCancel generationCancel = GenerationCancel::Button;
+constexpr WPARAM kInspectGenerationDialog = 0x4658;
+
 RuleGenerator::Result AwaitCancel(const std::atomic_bool& cancel,
                                  const RuleGenerator::Progress&) {
-    Sleep(250);
+    generationDialogWait = WaitForSingleObject(generationDialogRelease, 5000);
     RuleGenerator::Result result;
     result.cancelled = cancel.load(std::memory_order_relaxed);
     return result;
+}
+
+BOOL CALLBACK CountGenerationButtons(HWND control, LPARAM data) {
+    auto& probe = *reinterpret_cast<GenerationDialogProbe*>(data);
+    wchar_t name[32]{};
+    if (GetClassNameW(control, name, static_cast<int>(std::size(name))) &&
+        lstrcmpiW(name, L"Button") == 0 && IsWindowVisible(control)) {
+        wchar_t text[256]{};
+        GetWindowTextW(control, text, static_cast<int>(std::size(text)));
+        ++probe.visibleButtons;
+        if (LoadStringRes(IDS_BTN_CANCEL) == text) {
+            probe.sawCancel = true;
+            probe.cancelButton = control;
+        }
+    }
+    return TRUE;
 }
 
 LRESULT CALLBACK CancelGenerationOnShow(int code, WPARAM wp, LPARAM lp) {
@@ -1245,7 +1317,29 @@ LRESULT CALLBACK CancelGenerationOnShow(int code, WPARAM wp, LPARAM lp) {
             wchar_t title[256]{};
             GetWindowTextW(message->hwnd, title, static_cast<int>(std::size(title)));
             if (LoadStringRes(IDS_RULE_GENERATE) == title)
-                PostMessageW(message->hwnd, TDM_CLICK_BUTTON, IDCANCEL, 0);
+                PostMessageW(message->hwnd, WM_NULL, kInspectGenerationDialog, 0);
+        }
+    }
+    return CallNextHookEx(nullptr, code, wp, lp);
+}
+
+LRESULT CALLBACK InspectGenerationDialog(int code, WPARAM wp, LPARAM lp) {
+    if (code >= 0 && wp == PM_REMOVE) {
+        const auto* message = reinterpret_cast<const MSG*>(lp);
+        if (message->message == WM_NULL && message->wParam == kInspectGenerationDialog &&
+            !generationDialogProbe.inspected) {
+            auto& probe = generationDialogProbe;
+            probe.inspected = true;
+            EnumChildWindows(message->hwnd, CountGenerationButtons, reinterpret_cast<LPARAM>(&probe));
+            if (generationCancel == GenerationCancel::TitleBar)
+                SendMessageW(message->hwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
+            else if (generationCancel == GenerationCancel::CloseMessage)
+                SendMessageW(message->hwnd, WM_CLOSE, 0, 0);
+            else
+                SendMessageW(message->hwnd, TDM_CLICK_BUTTON, IDCANCEL, 0);
+            probe.stayedOpen = IsWindow(message->hwnd) != FALSE;
+            probe.cancelDisabled = probe.cancelButton && !IsWindowEnabled(probe.cancelButton);
+            SetEvent(generationDialogRelease);
         }
     }
     return CallNextHookEx(nullptr, code, wp, lp);
@@ -1257,15 +1351,46 @@ void GenerationDialog() {
     complete.Show(nullptr, GetModuleHandleW(nullptr));
     CheckAuto(!complete.failed && !complete.cancel.load(), "completed progress dialog failed");
 
-    HHOOK hook = SetWindowsHookExW(WH_CALLWNDPROC, CancelGenerationOnShow, nullptr,
-                                   GetCurrentThreadId());
-    CheckAuto(hook != nullptr, "cannot hook progress dialog");
-    RuleGenerationProgress cancelled;
-    cancelled.scan = AwaitCancel;
-    cancelled.Show(nullptr, GetModuleHandleW(nullptr));
-    UnhookWindowsHookEx(hook);
-    CheckAuto(!cancelled.failed && cancelled.cancel.load() && cancelled.result.cancelled,
-              "progress dialog did not cancel the worker");
+    RuleGenerationProgress failure;
+    failure.scan = FailGeneration;
+    failure.Show(nullptr, GetModuleHandleW(nullptr));
+    CheckAuto(failure.failed && !failure.cancel.load(), "failed progress dialog did not close");
+
+    for (GenerationCancel action : {GenerationCancel::Button, GenerationCancel::TitleBar,
+                                    GenerationCancel::CloseMessage}) {
+        generationDialogProbe = {};
+        generationDialogWait = WAIT_FAILED;
+        generationCancel = action;
+        generationDialogRelease = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        CheckAuto(generationDialogRelease != nullptr, "cannot create progress dialog event");
+        HHOOK inspect = SetWindowsHookExW(WH_GETMESSAGE, InspectGenerationDialog, nullptr,
+                                          GetCurrentThreadId());
+        HHOOK hook = SetWindowsHookExW(WH_CALLWNDPROC, CancelGenerationOnShow, nullptr,
+                                       GetCurrentThreadId());
+        CheckAuto(inspect != nullptr && hook != nullptr, "cannot hook progress dialog");
+        RuleGenerationProgress cancelled;
+        cancelled.scan = AwaitCancel;
+        cancelled.Show(nullptr, GetModuleHandleW(nullptr));
+        UnhookWindowsHookEx(hook);
+        UnhookWindowsHookEx(inspect);
+        CloseHandle(generationDialogRelease);
+        generationDialogRelease = nullptr;
+        CheckAuto(generationDialogProbe.inspected, "progress dialog was not inspected");
+        if (generationDialogProbe.visibleButtons != 1 || !generationDialogProbe.sawCancel)
+            std::cerr << "visible buttons=" << generationDialogProbe.visibleButtons
+                      << ", cancel=" << generationDialogProbe.sawCancel << '\n';
+        CheckAuto(generationDialogProbe.visibleButtons == 1 && generationDialogProbe.sawCancel,
+                  "progress dialog did not show exactly one Cancel button");
+        if (!generationDialogProbe.stayedOpen || !generationDialogProbe.cancelDisabled)
+            std::cerr << "action=" << static_cast<int>(action) << ", stayed=" << generationDialogProbe.stayedOpen
+                      << ", disabled=" << generationDialogProbe.cancelDisabled
+                      << ", cancelled=" << cancelled.cancel.load() << '\n';
+        CheckAuto(generationDialogProbe.stayedOpen, "progress dialog closed before the worker finished");
+        CheckAuto(generationDialogProbe.cancelDisabled, "Cancel button stayed enabled after cancellation");
+        CheckAuto(generationDialogWait == WAIT_OBJECT_0 && !cancelled.failed &&
+                  cancelled.cancel.load() && cancelled.result.cancelled,
+                  "progress dialog did not cancel the worker");
+    }
 }
 
 } // анонимное пространство имён

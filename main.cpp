@@ -145,12 +145,13 @@ constexpr PolicyCommand kPolicyCommands[] = {
 // Диалог остаётся открытым до завершения текущей проверки подписи: рабочий
 // поток не обращается к уничтоженному HWND, а отмена не записывает правила.
 struct RuleGenerationProgress {
-    static constexpr int kFinished = 32700;
+    static constexpr UINT kWorkerFinished = WM_APP + 1;
     std::atomic_bool cancel{false};
     RuleGenerator::Result result;
     HANDLE thread = nullptr;
     HWND dialog = nullptr;
     bool failed = false;
+    bool finished = false; // Меняется только потоком окна после сообщения о завершении.
     using Scanner = RuleGenerator::Result (*)(const std::atomic_bool&, const RuleGenerator::Progress&);
     Scanner scan = &RuleGenerator::Scan;
 
@@ -165,27 +166,53 @@ struct RuleGenerationProgress {
         } catch (...) {
             self.failed = true;
         }
-        PostMessageW(self.dialog, TDM_CLICK_BUTTON, kFinished, 0);
+        PostMessageW(self.dialog, kWorkerFinished, 0, 0);
         return 0;
+    }
+
+    void RequestCancel(HWND window) {
+        cancel.store(true, std::memory_order_relaxed);
+        SendMessageW(window, TDM_ENABLE_BUTTON, IDCANCEL, FALSE);
+    }
+
+    static LRESULT CALLBACK DialogProc(HWND window, UINT message, WPARAM wp, LPARAM lp,
+                                       UINT_PTR id, DWORD_PTR context) {
+        auto& self = *reinterpret_cast<RuleGenerationProgress*>(context);
+        if (message == kWorkerFinished) {
+            self.finished = true;
+            SendMessageW(window, TDM_ENABLE_BUTTON, IDCANCEL, TRUE);
+            SendMessageW(window, TDM_CLICK_BUTTON, IDCANCEL, 0);
+            return 0;
+        }
+        // Системное закрытие также отменяет поиск, не уничтожая окно потока.
+        if (!self.finished && (message == WM_CLOSE ||
+            (message == WM_SYSCOMMAND && (wp & 0xfff0) == SC_CLOSE))) {
+            self.RequestCancel(window);
+            return 0;
+        }
+        if (message == WM_NCDESTROY) RemoveWindowSubclass(window, DialogProc, id);
+        return DefSubclassProc(window, message, wp, lp);
     }
 
     static HRESULT CALLBACK Callback(HWND dialog, UINT event, WPARAM button, LPARAM, LONG_PTR data) {
         auto& self = *reinterpret_cast<RuleGenerationProgress*>(data);
         if (event == TDN_CREATED) {
             self.dialog = dialog;
-            ShowWindow(GetDlgItem(dialog, kFinished), SW_HIDE);
+            if (!SetWindowSubclass(dialog, DialogProc, 0, reinterpret_cast<DWORD_PTR>(&self))) {
+                self.failed = true;
+                self.finished = true;
+                PostMessageW(dialog, TDM_CLICK_BUTTON, IDCANCEL, 0);
+                return S_OK;
+            }
             self.thread = CreateThread(nullptr, 0, Run, &self, 0, nullptr);
             if (!self.thread) {
                 self.failed = true;
-                PostMessageW(dialog, TDM_CLICK_BUTTON, kFinished, 0);
+                PostMessageW(dialog, kWorkerFinished, 0, 0);
             }
-        } else if (event == TDN_BUTTON_CLICKED) {
-            if (button == kFinished) return S_OK;
-            if (button == IDCANCEL) {
-                self.cancel.store(true, std::memory_order_relaxed);
-                EnableWindow(GetDlgItem(dialog, IDCANCEL), FALSE);
-                return S_FALSE;
-            }
+        } else if (event == TDN_BUTTON_CLICKED && button == IDCANCEL) {
+            if (self.finished) return S_OK;
+            self.RequestCancel(dialog);
+            return S_FALSE;
         }
         return S_OK;
     }
@@ -194,7 +221,7 @@ struct RuleGenerationProgress {
         const std::wstring title = LoadStringRes(IDS_RULE_GENERATE);
         const std::wstring text = LoadStringRes(IDS_RULE_GENERATE_PROGRESS);
         const std::wstring cancelText = LoadStringRes(IDS_BTN_CANCEL);
-        const TASKDIALOG_BUTTON buttons[] = {{IDCANCEL, cancelText.c_str()}, {kFinished, cancelText.c_str()}};
+        const TASKDIALOG_BUTTON buttons[] = {{IDCANCEL, cancelText.c_str()}};
         TASKDIALOGCONFIG config{sizeof(config)};
         config.hwndParent = owner;
         config.hInstance = instance;
