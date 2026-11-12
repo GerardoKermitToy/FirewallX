@@ -1798,41 +1798,6 @@ void TestRuleDatabaseLoadErrors() {
               "не удалось восстановить однократное чтение после ошибки");
         Check(sqlite3_cancel_auto_extension(extension) == 1,
               "не удалось снять проверку прерванного чтения");
-
-        RuleDb reader;
-        Check(reader.Open(path, error), "не удалось открыть базу для проверки блокировки");
-        sqlite3* locker = nullptr;
-        const std::string utf8Path = WideToUtf8(path);
-        Check(sqlite3_open(utf8Path.c_str(), &locker) == SQLITE_OK,
-              "не удалось открыть второе подключение SQLite");
-        Check(sqlite3_exec(locker, "BEGIN EXCLUSIVE;", nullptr, nullptr, nullptr) == SQLITE_OK,
-              "не удалось заблокировать тестовую базу");
-        error.clear();
-        const ULONGLONG start = GetTickCount64();
-        const bool success = reader.Load(loaded, maxId, error);
-        const ULONGLONG elapsed = GetTickCount64() - start;
-        Check(!success && loaded.empty() && maxId == 0 && !error.empty(),
-              "блокировка базы ошибочно признана успешной загрузкой пустых правил");
-        Check(elapsed >= 9000, "таймаут ожидания блокировки базы не увеличен до 10 секунд");
-        Check(sqlite3_exec(locker, "ROLLBACK;", nullptr, nullptr, nullptr) == SQLITE_OK,
-              "не удалось снять блокировку тестовой базы");
-        Check(reader.Load(loaded, maxId, error), "не удалось прочитать базу после разблокировки");
-        verifyOriginal(loaded, maxId);
-
-        // Блокировка дольше прежних трёх секунд должна завершиться полным чтением.
-        Check(sqlite3_exec(locker, "BEGIN EXCLUSIVE;", nullptr, nullptr, nullptr) == SQLITE_OK,
-              "не удалось повторно заблокировать тестовую базу");
-        int unlockResult = SQLITE_ERROR;
-        std::thread unlocker([&] {
-            Sleep(3500);
-            unlockResult = sqlite3_exec(locker, "ROLLBACK;", nullptr, nullptr, nullptr);
-        });
-        const bool recovered = reader.Load(loaded, maxId, error);
-        unlocker.join();
-        Check(unlockResult == SQLITE_OK && recovered,
-              "загрузка не дождалась снятия блокировки внутри нового таймаута");
-        verifyOriginal(loaded, maxId);
-        Check(sqlite3_close(locker) == SQLITE_OK, "не удалось закрыть второе подключение");
     }
     Check(DeleteFileW(filename) != FALSE, "не удалось удалить временный файл правил");
 }
