@@ -26,6 +26,9 @@ struct ServiceCandidate {
     std::wstring dll;
 };
 
+// Ищет ServiceDll в Parameters и, при его отсутствии, в самом ключе службы.
+std::wstring ReadServiceDll(HKEY root, const std::wstring& serviceKey);
+
 // Проверяет уже найденные файлы и создаёт полный набор шаблонов.
 Result VerifyCandidates(const std::vector<std::wstring>& paths,
                         const std::vector<ServiceCandidate>& services,

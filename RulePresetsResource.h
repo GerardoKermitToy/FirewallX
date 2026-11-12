@@ -193,6 +193,12 @@
 #define IDS_PRESET_RULE_LOOPBACK_TCP_IPV6 2284
 #define IDS_PRESET_VISUAL_STUDIO_HTTPS    2285
 #define IDS_PRESET_VISUAL_STUDIO_WEB      2286
+#define IDS_PRESET_FEEDBACK_HUB           2287
+#define IDS_PRESET_WEBVIEW2_MDNS          2288
+#define IDS_PRESET_PUBLISHER              2289
+#define IDS_PRESET_POWERPOINT             2290
+#define IDS_PRESET_WORD                   2291
+#define IDS_PRESET_RULE_HTTPS_HTTP        2292
 
 /* Группы интерфейсов; все переводы также в RulePresets.rc. */
 #define IDS_INTERFACE_UNKNOWN             2110

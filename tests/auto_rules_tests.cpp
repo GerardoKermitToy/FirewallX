@@ -100,6 +100,7 @@ struct TempDirectory {
         for (const wchar_t* name : { L"chrome.exe", L"msedge.exe", L"curl.exe", L"unknown.exe",
                                      L"devenv.exe", L"winget.exe", L"wget.exe", L"pwsh.exe",
                                      L"powershell.exe", L"python.exe", L"python3.exe", L"perl.exe",
+                                     L"FeedbackHub.exe", L"MSPUB.EXE", L"POWERPNT.EXE", L"WINWORD.EXE",
                                      L"CopilotApp.exe", L"explorer.exe", L"MpCmdRun.exe",
                                      L"Discord.exe", L"obs64.exe", L"OneDrive.exe",
                                      L"OneDrive.Sync.Service.exe", L"OneDriveUpdaterService.exe",
@@ -1078,6 +1079,139 @@ void GeneratedExecutableSelection(const std::wstring& systemExe) {
         }), "Visual Studio generation omitted a template port");
 }
 
+void GeneratedDoSvc(const std::wstring& signedDll, const std::wstring& unsignedDll) {
+    ServiceEntry entry;
+    entry.name = L"DoSvc";
+    const std::wstring host = SystemDirFile(L"svchost.exe");
+    RuleGenerator::ServiceCandidate service{entry, host, signedDll};
+    std::atomic_bool cancel{false};
+    auto result = RuleGenerator::VerifyCandidates({host}, {service}, cancel, {});
+    CheckAuto(!result.cancelled && result.files.size() == 2,
+              "DoSvc host or DLL did not pass signature verification");
+    std::vector<Rule> serviceRules;
+    for (const Rule& rule : result.rules) {
+        if (rule.scope != RuleScope::App) continue;
+        CheckAuto(EqualNoCase(rule.appPath, host) && (rule.conds & CondService) &&
+                  rule.services.size() == 1 && EqualNoCase(rule.services.front().name, L"DoSvc"),
+                  "generated svchost rule was not limited to DoSvc");
+        serviceRules.push_back(rule);
+    }
+    RuleStore store;
+    CheckAuto(serviceRules.size() == 12 && RulePresets::ApplyGenerated(store, serviceRules) == 6 &&
+              RulePresets::ApplyGenerated(store, serviceRules) == 0,
+              "DoSvc templates were incomplete or generated duplicate rules");
+    for (Dir direction : {Dir::Out, Dir::In}) {
+        CheckAuto(std::any_of(serviceRules.begin(), serviceRules.end(), [&](const Rule& rule) {
+            const auto& ports = direction == Dir::Out ? rule.remotePorts : rule.localPorts;
+            return rule.dir == direction && rule.proto == Proto::Tcp &&
+                   std::any_of(ports.begin(), ports.end(), [](const PortItem& port) {
+                       return port.from == 7680 && port.to == 7680;
+                   });
+        }), "DoSvc template omitted a local peer direction");
+    }
+    result = {};
+    service.dll = unsignedDll;
+    result = RuleGenerator::VerifyCandidates({host}, {service}, cancel, {});
+    CheckAuto(!result.cancelled && std::none_of(result.rules.begin(), result.rules.end(),
+        [](const Rule& rule) { return rule.scope == RuleScope::App; }),
+        "unsigned DoSvc DLL received rules");
+}
+
+void ServiceDllRegistry() {
+    const std::wstring keyPath = L"Software\\FirewallX-ServiceDllTest-" +
+        std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64());
+    HKEY key = nullptr;
+    DWORD disposition = 0;
+    CheckAuto(RegCreateKeyExW(HKEY_CURRENT_USER, keyPath.c_str(), 0, nullptr, REG_OPTION_VOLATILE,
+                              KEY_ALL_ACCESS, nullptr, &key, &disposition) == ERROR_SUCCESS &&
+              disposition == REG_CREATED_NEW_KEY, "cannot create test service key");
+    struct Cleanup {
+        HKEY key;
+        std::wstring path;
+        ~Cleanup() {
+            RegCloseKey(key);
+            RegDeleteTreeW(HKEY_CURRENT_USER, path.c_str());
+        }
+    } cleanup{key, keyPath};
+    const auto write = [](HKEY target, DWORD type, const std::wstring& value) {
+        return RegSetValueExW(target, L"ServiceDll", 0, type,
+            reinterpret_cast<const BYTE*>(value.c_str()),
+            static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
+    };
+    CheckAuto(RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, keyPath).empty(),
+              "missing service DLL was not empty");
+    CheckAuto(write(key, REG_EXPAND_SZ, L"%SystemRoot%\\System32\\dosvc.dll") &&
+              EqualNoCase(RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, keyPath),
+                          SystemDirFile(L"dosvc.dll")),
+              "service DLL in the root key was not read and expanded");
+    HKEY parameters = nullptr;
+    CheckAuto(RegCreateKeyExW(key, L"Parameters", 0, nullptr, REG_OPTION_VOLATILE,
+                              KEY_ALL_ACCESS, nullptr, &parameters, nullptr) == ERROR_SUCCESS,
+              "cannot create test service parameters");
+    const std::wstring configured = SystemDirFile(L"different.dll");
+    CheckAuto(write(parameters, REG_SZ, configured) &&
+              EqualNoCase(RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, keyPath), configured),
+              "service parameters lost their existing priority");
+    const DWORD invalid = 1;
+    CheckAuto(RegSetValueExW(parameters, L"ServiceDll", 0, REG_DWORD,
+                             reinterpret_cast<const BYTE*>(&invalid), sizeof(invalid)) == ERROR_SUCCESS &&
+              RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, keyPath).empty() &&
+              write(parameters, REG_SZ, L"") &&
+              RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, keyPath).empty(),
+              "invalid service parameters were replaced with a different DLL");
+    CheckAuto(RegDeleteValueW(parameters, L"ServiceDll") == ERROR_SUCCESS &&
+              EqualNoCase(RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, keyPath),
+                          SystemDirFile(L"dosvc.dll")),
+              "service DLL did not fall back to the root key");
+    CheckAuto(RegDeleteValueW(key, L"ServiceDll") == ERROR_SUCCESS &&
+              write(parameters, REG_SZ, configured) &&
+              EqualNoCase(RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, keyPath), configured),
+              "service DLL in parameters was not read");
+    RegCloseKey(parameters);
+}
+
+void GeneratedOfficeAndFeedback(const std::wstring& systemExe, const wchar_t* unsignedExe) {
+    TempDirectory dir;
+    std::vector<std::wstring> paths;
+    for (const wchar_t* name : {L"FeedbackHub.exe", L"MSPUB.EXE", L"POWERPNT.EXE", L"WINWORD.EXE"}) {
+        const std::wstring path = dir.File(name);
+        CheckAuto(CopyFileW(systemExe.c_str(), path.c_str(), FALSE), "cannot copy signed test executable");
+        paths.push_back(path);
+    }
+    std::atomic_bool cancel{false};
+    const auto result = RuleGenerator::VerifyCandidates(paths, {}, cancel, {});
+    CheckAuto(!result.cancelled && result.files.size() == paths.size(),
+              "generation did not verify the requested applications");
+    for (const std::wstring& path : paths) {
+        std::vector<const Rule*> rules;
+        for (const Rule& rule : result.rules)
+            if (EqualNoCase(rule.appPath, path)) rules.push_back(&rule);
+        CheckAuto(rules.size() == 1 && rules.front()->scope == RuleScope::App &&
+                  rules.front()->action == RuleAction::Allow && rules.front()->proto == Proto::Tcp &&
+                  rules.front()->dir == Dir::Out &&
+                  rules.front()->conds == (CondProto | CondDirection | CondRemotePort) &&
+                  rules.front()->remotePorts.size() == 2 &&
+                  std::any_of(rules.front()->remotePorts.begin(), rules.front()->remotePorts.end(),
+                      [](const PortItem& port) { return port.from == 80 && port.to == 80; }) &&
+                  std::any_of(rules.front()->remotePorts.begin(), rules.front()->remotePorts.end(),
+                      [](const PortItem& port) { return port.from == 443 && port.to == 443; }),
+                  "requested application did not receive its complete HTTP/HTTPS template");
+    }
+    RuleStore store;
+    CheckAuto(RulePresets::ApplyGenerated(store, result.rules) == paths.size() + 2 &&
+              RulePresets::ApplyGenerated(store, result.rules) == 0,
+              "requested applications were not added without duplicates");
+
+    TempDirectory unsignedDir;
+    const std::wstring unsignedPath = unsignedDir.File(L"FeedbackHub.exe");
+    CheckAuto(CopyFileW(unsignedExe, unsignedPath.c_str(), FALSE), "cannot copy unsigned test executable");
+    const auto unsignedResult = RuleGenerator::VerifyCandidates({unsignedPath}, {}, cancel, {});
+    CheckAuto(unsignedResult.files.empty() &&
+              std::none_of(unsignedResult.rules.begin(), unsignedResult.rules.end(),
+                  [&](const Rule& rule) { return EqualNoCase(rule.appPath, unsignedPath); }),
+              "unsigned requested application received rules");
+}
+
 void GenerationDiscovery() {
     std::atomic_bool cancel{false};
     size_t discovered = 0;
@@ -1154,9 +1288,23 @@ int main(int argc, char** argv) {
         const auto visualRules = std::count_if(result.rules.begin(), result.rules.end(), [](const Rule& rule) {
             return EqualNoCase(rule.appName, L"devenv.exe");
         });
+        const auto doSvcRules = std::count_if(result.rules.begin(), result.rules.end(), [](const Rule& rule) {
+            return (rule.conds & CondService) && std::any_of(rule.services.begin(), rule.services.end(),
+                [](const ServiceItem& service) { return EqualNoCase(service.name, L"DoSvc"); });
+        });
         std::cout << "Candidates checked: " << total << ", trusted files: " << result.files.size()
                   << ", generated rules: " << result.rules.size()
-                  << ", Visual Studio rules: " << visualRules << '\n';
+                  << ", Visual Studio rules: " << visualRules << ", DoSvc rules: " << doSvcRules << '\n';
+        for (const auto& [name, label] : {
+                std::pair{L"FeedbackHub.exe", "FeedbackHub.exe"},
+                std::pair{L"MSPUB.EXE", "MSPUB.EXE"},
+                std::pair{L"POWERPNT.EXE", "POWERPNT.EXE"},
+                std::pair{L"WINWORD.EXE", "WINWORD.EXE"}}) {
+            const auto count = std::count_if(result.rules.begin(), result.rules.end(), [&](const Rule& rule) {
+                return EqualNoCase(rule.appName, name);
+            });
+            std::cout << label << " rules: " << count << '\n';
+        }
         return 0;
     }
     TempDirectory dir;
@@ -1186,6 +1334,9 @@ int main(int argc, char** argv) {
     GeneratedIgmp(dir.File(L"generation.db"));
     GeneratedRules(signedPath, unsignedGeneratedPath, dir.File(L"TeamViewer_Service.exe"));
     GeneratedExecutableSelection(systemExe);
+    GeneratedOfficeAndFeedback(systemExe, self);
+    ServiceDllRegistry();
+    GeneratedDoSvc(systemExe, unsignedGeneratedPath);
     GenerationDiscovery();
     GenerationDialog();
     std::wstring error;

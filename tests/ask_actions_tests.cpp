@@ -821,108 +821,108 @@ void TestNewResources() {
         const wchar_t* dgm;
     };
     const NetbiosTranslation netbios[] = {
-        {UiLang::Russian, L"SYSTEM: блокировать исходящий NetBIOS",
-            L"Исходящий NetBIOS-NS, UDP 137 → 137",
-            L"Исходящий NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::English, L"SYSTEM: block outbound NetBIOS",
-            L"Outbound NetBIOS-NS, UDP 137 → 137",
-            L"Outbound NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Korean, L"SYSTEM: 아웃바운드 NetBIOS 차단",
-            L"아웃바운드 NetBIOS-NS, UDP 137 → 137",
-            L"아웃바운드 NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Chinese, L"SYSTEM：阻止出站 NetBIOS",
-            L"出站 NetBIOS-NS，UDP 137 → 137",
-            L"出站 NetBIOS-DGM，UDP 138 → 138"},
-        {UiLang::Ukrainian, L"SYSTEM: блокувати вихідний NetBIOS",
-            L"Вихідний NetBIOS-NS, UDP 137 → 137",
-            L"Вихідний NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::German, L"SYSTEM: ausgehendes NetBIOS blockieren",
-            L"Ausgehendes NetBIOS-NS, UDP 137 → 137",
-            L"Ausgehendes NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::French, L"SYSTEM : bloquer NetBIOS sortant",
-            L"NetBIOS-NS sortant, UDP 137 → 137",
-            L"NetBIOS-DGM sortant, UDP 138 → 138"},
-        {UiLang::Spanish, L"SYSTEM: bloquear NetBIOS saliente",
-            L"NetBIOS-NS saliente, UDP 137 → 137",
-            L"NetBIOS-DGM saliente, UDP 138 → 138"},
-        {UiLang::Arabic, L"SYSTEM: حظر NetBIOS الصادر",
-            L"NetBIOS-NS صادر، UDP 137 → 137",
-            L"NetBIOS-DGM صادر، UDP 138 → 138"},
-        {UiLang::Hindi, L"SYSTEM: आउटबाउंड NetBIOS अवरुद्ध करें",
-            L"आउटबाउंड NetBIOS-NS, UDP 137 → 137",
-            L"आउटबाउंड NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Latvian, L"SYSTEM: bloķēt izejošo NetBIOS",
-            L"Izejošais NetBIOS-NS, UDP 137 → 137",
-            L"Izejošais NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Lithuanian, L"SYSTEM: blokuoti siunčiamą NetBIOS",
-            L"Siunčiamas NetBIOS-NS, UDP 137 → 137",
-            L"Siunčiamas NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Estonian, L"SYSTEM: blokeeri väljuv NetBIOS",
-            L"Väljuv NetBIOS-NS, UDP 137 → 137",
-            L"Väljuv NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Romanian, L"SYSTEM: blochează traficul NetBIOS de ieșire",
-            L"NetBIOS-NS de ieșire, UDP 137 → 137",
-            L"NetBIOS-DGM de ieșire, UDP 138 → 138"},
-        {UiLang::Swedish, L"SYSTEM: blockera utgående NetBIOS",
-            L"Utgående NetBIOS-NS, UDP 137 → 137",
-            L"Utgående NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Polish, L"SYSTEM: blokuj wychodzący NetBIOS",
-            L"Wychodzący NetBIOS-NS, UDP 137 → 137",
-            L"Wychodzący NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Vietnamese, L"SYSTEM: chặn NetBIOS đi",
-            L"NetBIOS-NS đi, UDP 137 → 137",
-            L"NetBIOS-DGM đi, UDP 138 → 138"},
-        {UiLang::Portuguese, L"SYSTEM: bloquear NetBIOS de saída",
-            L"NetBIOS-NS de saída, UDP 137 → 137",
-            L"NetBIOS-DGM de saída, UDP 138 → 138"},
-        {UiLang::Italian, L"SYSTEM: blocca NetBIOS in uscita",
-            L"NetBIOS-NS in uscita, UDP 137 → 137",
-            L"NetBIOS-DGM in uscita, UDP 138 → 138"},
-        {UiLang::Persian, L"SYSTEM: مسدود کردن NetBIOS خروجی",
-            L"NetBIOS-NS خروجی، UDP 137 → 137",
-            L"NetBIOS-DGM خروجی، UDP 138 → 138"},
-        {UiLang::Japanese, L"SYSTEM: 送信 NetBIOS をブロック",
-            L"送信 NetBIOS-NS、UDP 137 → 137",
-            L"送信 NetBIOS-DGM、UDP 138 → 138"},
-        {UiLang::Turkish, L"SYSTEM: giden NetBIOS'u engelle",
-            L"Giden NetBIOS-NS, UDP 137 → 137",
-            L"Giden NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Indonesian, L"SYSTEM: blokir NetBIOS keluar",
-            L"NetBIOS-NS keluar, UDP 137 → 137",
-            L"NetBIOS-DGM keluar, UDP 138 → 138"},
-        {UiLang::Czech, L"SYSTEM: blokovat odchozí NetBIOS",
-            L"Odchozí NetBIOS-NS, UDP 137 → 137",
-            L"Odchozí NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Thai, L"SYSTEM: บล็อก NetBIOS ขาออก",
-            L"NetBIOS-NS ขาออก, UDP 137 → 137",
-            L"NetBIOS-DGM ขาออก, UDP 138 → 138"},
-        {UiLang::PortugueseBrazil, L"SYSTEM: bloquear NetBIOS de saída",
-            L"NetBIOS-NS de saída, UDP 137 → 137",
-            L"NetBIOS-DGM de saída, UDP 138 → 138"},
-        {UiLang::ChineseTraditional, L"SYSTEM：封鎖連出 NetBIOS",
-            L"連出 NetBIOS-NS，UDP 137 → 137",
-            L"連出 NetBIOS-DGM，UDP 138 → 138"},
-        {UiLang::Hungarian, L"SYSTEM: kimenő NetBIOS tiltása",
-            L"Kimenő NetBIOS-NS, UDP 137 → 137",
-            L"Kimenő NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Greek, L"SYSTEM: αποκλεισμός εξερχόμενου NetBIOS",
-            L"Εξερχόμενο NetBIOS-NS, UDP 137 → 137",
-            L"Εξερχόμενο NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Dutch, L"SYSTEM: uitgaand NetBIOS blokkeren",
-            L"Uitgaand NetBIOS-NS, UDP 137 → 137",
-            L"Uitgaand NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Bulgarian, L"SYSTEM: блокиране на изходящ NetBIOS",
-            L"Изходящ NetBIOS-NS, UDP 137 → 137",
-            L"Изходящ NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Danish, L"SYSTEM: bloker udgående NetBIOS",
-            L"Udgående NetBIOS-NS, UDP 137 → 137",
-            L"Udgående NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::NorwegianBokmal, L"SYSTEM: blokker utgående NetBIOS",
-            L"Utgående NetBIOS-NS, UDP 137 → 137",
-            L"Utgående NetBIOS-DGM, UDP 138 → 138"},
-        {UiLang::Finnish, L"SYSTEM: estä lähtevä NetBIOS",
-            L"Lähtevä NetBIOS-NS, UDP 137 → 137",
-            L"Lähtevä NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Russian, L"SYSTEM: блокировать NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::English, L"SYSTEM: block NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Korean, L"SYSTEM: NetBIOS 차단",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Chinese, L"SYSTEM：阻止 NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Ukrainian, L"SYSTEM: блокувати NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::German, L"SYSTEM: NetBIOS blockieren",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::French, L"SYSTEM : bloquer NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Spanish, L"SYSTEM: bloquear NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Arabic, L"SYSTEM: حظر NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Hindi, L"SYSTEM: NetBIOS अवरुद्ध करें",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Latvian, L"SYSTEM: bloķēt NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Lithuanian, L"SYSTEM: blokuoti NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Estonian, L"SYSTEM: blokeeri NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Romanian, L"SYSTEM: blochează traficul NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Swedish, L"SYSTEM: blockera NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Polish, L"SYSTEM: blokuj NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Vietnamese, L"SYSTEM: chặn NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Portuguese, L"SYSTEM: bloquear NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Italian, L"SYSTEM: blocca NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Persian, L"SYSTEM: مسدود کردن NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Japanese, L"SYSTEM: NetBIOS をブロック",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Turkish, L"SYSTEM: NetBIOS'u engelle",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Indonesian, L"SYSTEM: blokir NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Czech, L"SYSTEM: blokovat NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Thai, L"SYSTEM: บล็อก NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::PortugueseBrazil, L"SYSTEM: bloquear NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::ChineseTraditional, L"SYSTEM：封鎖 NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Hungarian, L"SYSTEM: NetBIOS tiltása",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Greek, L"SYSTEM: αποκλεισμός NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Dutch, L"SYSTEM: NetBIOS blokkeren",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Bulgarian, L"SYSTEM: блокиране на NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Danish, L"SYSTEM: bloker NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::NorwegianBokmal, L"SYSTEM: blokker NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
+        {UiLang::Finnish, L"SYSTEM: estä NetBIOS",
+            L"NetBIOS-NS, UDP 137 → 137",
+            L"NetBIOS-DGM, UDP 138 → 138"},
     };
     Check(std::size(netbios) == count, "missing NetBIOS translation test");
     for (const auto& translation : netbios) {
@@ -1283,6 +1283,202 @@ void TestApplicationSuggestions() {
         choices = RulePresets::Suggest(Request(std::wstring(L"C:\\Apps\\") + file, proto, port));
         ChoiceOf(choices, title);
     }
+}
+
+void TestFeedbackOfficeAndWebViewPresets() {
+    const UiLang previous = CurrentUiLang();
+    SetUiLang(UiLang::English);
+    struct WebProfile {
+        const wchar_t* path;
+        UINT titleId;
+        const wchar_t* title;
+    };
+    const WebProfile profiles[] = {
+        {L"C:\\Program Files\\WindowsApps\\Microsoft.WindowsFeedbackHub_2.2609.102.0_x64__8wekyb3d8bbwe\\WinUI3App\\FeedbackHub.exe",
+            IDS_PRESET_FEEDBACK_HUB, L"FeedbackHub.exe: HTTPS / HTTP"},
+        {L"C:\\Program Files\\Microsoft Office\\root\\Office16\\MSPUB.EXE",
+            IDS_PRESET_PUBLISHER, L"MSPUB.EXE: HTTPS / HTTP"},
+        {L"C:\\Program Files\\Microsoft Office\\root\\Office16\\POWERPNT.EXE",
+            IDS_PRESET_POWERPOINT, L"POWERPNT.EXE: HTTPS / HTTP"},
+        {L"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+            IDS_PRESET_WORD, L"WINWORD.EXE: HTTPS / HTTP"}
+    };
+    for (const auto& profile : profiles) {
+        AskRequest request = Request(profile.path, Proto::Tcp, 443, L"150.171.73.13");
+        request.key.local = Ip(L"192.168.0.225");
+        request.key.lport = 24794;
+        request.interfaceName = std::make_shared<const std::wstring>(L"Captured Wi-Fi");
+        request.conditionFlags = 1;
+        const auto choices = RulePresets::Suggest(request);
+        Check(choices.size() == 1, "web application did not get its exact preset");
+        const auto& preset = ChoiceOf(choices, profile.titleId);
+        Check(preset.title == profile.title && preset.rules.size() == 1,
+              "web application preset lost its title or single rule");
+        const Rule& rule = preset.rules.front();
+        Check(rule.scope == RuleScope::App && rule.appPath == request.appPath &&
+              rule.action == RuleAction::Allow && rule.proto == Proto::Tcp && rule.dir == Dir::Out &&
+              rule.conds == (CondProto | CondDirection | CondRemotePort) &&
+              rule.remotePorts.size() == 2 && rule.remotePorts[0].from == 443 &&
+              rule.remotePorts[0].to == 443 && rule.remotePorts[1].from == 80 &&
+              rule.remotePorts[1].to == 80 && rule.localPorts.empty() &&
+              rule.remoteAddrs.empty() && rule.localAddrs.empty() && rule.services.empty() &&
+              rule.interfaceName.empty() && rule.conditionFlags == 0 &&
+              !rule.autoName && !rule.name.empty(),
+              "web application rule lost a condition or pinned a captured endpoint");
+        for (uint16_t port : {uint16_t{443}, uint16_t{80}}) {
+            AskRequest flow = request;
+            flow.key.rport = port;
+            flow.key.remote = Ip(L"203.0.113.33");
+            flow.key.local = Ip(L"10.20.30.40");
+            flow.key.lport = 60000;
+            flow.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
+            flow.conditionFlags.reset();
+            const auto offered = RulePresets::Suggest(flow);
+            Check(offered.size() == 1 && offered.front().titleId == profile.titleId &&
+                  RuleStore::MatchesRule(rule, flow.ToQuery()),
+                  "web preset missed a port or depended on the captured endpoint");
+            flow.dir = Dir::In;
+            Check(RuleStore::MatchesRule(rule, flow.ToQuery()),
+                  "web rule changed the existing direction handling for port-restricted allows");
+        }
+        for (const auto& [proto, port] : {
+                std::pair{Proto::Udp, uint16_t{443}}, std::pair{Proto::Udp, uint16_t{80}},
+                std::pair{Proto::Tcp, uint16_t{8080}}}) {
+            AskRequest unrelated = request;
+            unrelated.key.proto = proto;
+            unrelated.key.rport = port;
+            Check(RulePresets::Suggest(unrelated).empty() &&
+                  !RuleStore::MatchesRule(rule, unrelated.ToQuery()),
+                  "web preset accepted an unrelated protocol or port");
+        }
+        AskRequest unrelated = request;
+        unrelated.appPath = L"D:\\Other\\" + PathBaseUpper(request.appPath);
+        Check(RulePresets::Suggest(unrelated).size() == 1 &&
+              !RuleStore::MatchesRule(rule, unrelated.ToQuery()),
+              "web preset lost filename matching or concrete path scope");
+        unrelated.appPath = L"C:\\Apps\\not-a-preset.exe";
+        Check(RulePresets::Suggest(unrelated).empty(), "web preset matched an unrelated executable");
+        unrelated = request;
+        unrelated.ownerAmbiguous = true;
+        Check(RulePresets::Suggest(unrelated).empty(), "ambiguous owner got a web preset");
+
+        RuleStore store;
+        Check(RulePresets::Apply(store, request, preset.rules) == 1 && store.Count() == 1,
+              "cannot apply web application preset");
+        const uint64_t version = store.version();
+        size_t count = 0;
+        const UiLangInfo* languages = UiLangs(count);
+        for (size_t i = 0; i < count; ++i) {
+            SetUiLang(languages[i].lang);
+            const auto localized = RulePresets::Suggest(request);
+            const auto& translated = ChoiceOf(localized, profile.titleId);
+            const std::wstring title = LoadStringRes(profile.titleId);
+            const std::wstring name = LoadStringRes(IDS_PRESET_RULE_HTTPS_HTTP);
+            Check(title == profile.title && name == L"HTTPS / HTTP, TCP 443 / 80" &&
+                  translated.title == title && translated.rules.size() == 1 &&
+                  translated.rules[0].name == LoadStringResFmt(IDS_PRESET_RULE_NAME_FMT,
+                      title.c_str(), name.c_str()) &&
+                  RulePresets::Apply(store, request, translated.rules) == 0 &&
+                  store.Count() == 1 && store.version() == version,
+                  "localized web preset was lost or duplicated");
+        }
+        SetUiLang(UiLang::English);
+    }
+
+    const std::wstring path = L"C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\157.0.4341.42\\msedgewebview2.exe";
+    AskRequest request = Request(path, Proto::Udp, 5353, L"224.0.0.251");
+    request.key.local = Ip(L"192.168.156.1");
+    request.key.lport = 5353;
+    request.interfaceName = std::make_shared<const std::wstring>(L"VMware Network Adapter VMnet1");
+    request.conditionFlags = 1;
+    const auto choices = RulePresets::Suggest(request);
+    Check(choices.size() == 1, "WebView2 mDNS did not get its own preset");
+    const auto& preset = ChoiceOf(choices, IDS_PRESET_WEBVIEW2_MDNS);
+    Check(preset.title == L"msedgewebview2.exe: mDNS" && preset.rules.size() == 1,
+          "WebView2 mDNS preset lost its title or single rule");
+    const Rule& rule = preset.rules.front();
+    Check(rule.scope == RuleScope::App && rule.appPath == path && rule.action == RuleAction::Allow &&
+          rule.proto == Proto::Udp && rule.dir == Dir::Unknown &&
+          rule.conds == (CondProto | CondRemotePort | CondLocalPort) &&
+          rule.remotePorts.size() == 1 && rule.remotePorts[0].from == 5353 &&
+          rule.remotePorts[0].to == 5353 && rule.localPorts.size() == 1 &&
+          rule.localPorts[0].from == 5353 && rule.localPorts[0].to == 5353 &&
+          rule.remoteAddrs.empty() && rule.localAddrs.empty() && rule.services.empty() &&
+          rule.interfaceName.empty() && rule.conditionFlags == 0 &&
+          !rule.autoName && !rule.name.empty(),
+          "WebView2 mDNS rule lost paired ports or pinned a captured condition");
+    for (const auto& [local, remote] : {
+            std::pair{L"192.0.2.10", L"224.0.0.251"},
+            std::pair{L"2001:db8::10", L"ff02::fb"},
+            std::pair{L"192.0.2.10", L"198.51.100.20"}}) {
+        for (Dir dir : {Dir::In, Dir::Out}) {
+            AskRequest flow = request;
+            flow.dir = dir;
+            flow.key.local = Ip(local);
+            flow.key.remote = Ip(remote);
+            flow.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
+            flow.conditionFlags.reset();
+            const auto offered = RulePresets::Suggest(flow);
+            Check(offered.size() == 1 && offered.front().titleId == IDS_PRESET_WEBVIEW2_MDNS &&
+                  RuleStore::MatchesRule(rule, flow.ToQuery()),
+                  "WebView2 mDNS depended on direction, endpoint, interface or flags");
+        }
+    }
+    const auto rejectsMdns = [&](const AskRequest& other) {
+        const auto offered = RulePresets::Suggest(other);
+        Check(std::none_of(offered.begin(), offered.end(), [](const auto& choice) {
+                  return choice.titleId == IDS_PRESET_WEBVIEW2_MDNS;
+              }) && !RuleStore::MatchesRule(rule, other.ToQuery()),
+              "WebView2 mDNS accepted an unrelated connection");
+    };
+    AskRequest unrelated = request;
+    unrelated.key.proto = Proto::Tcp;
+    rejectsMdns(unrelated);
+    unrelated = request;
+    unrelated.key.rport = 5354;
+    rejectsMdns(unrelated);
+    unrelated = request;
+    unrelated.key.lport = 5354;
+    rejectsMdns(unrelated);
+    unrelated = request;
+    unrelated.appPath = L"C:\\Apps\\not-a-preset.exe";
+    rejectsMdns(unrelated);
+    unrelated = request;
+    unrelated.appPath = L"D:\\Other\\msedgewebview2.exe";
+    Check(RulePresets::Suggest(unrelated).size() == 1 &&
+          !RuleStore::MatchesRule(rule, unrelated.ToQuery()),
+          "WebView2 mDNS lost filename matching or concrete path scope");
+    unrelated = request;
+    unrelated.ownerAmbiguous = true;
+    Check(RulePresets::Suggest(unrelated).empty(), "ambiguous owner got a WebView2 preset");
+
+    RuleStore store;
+    Check(RulePresets::Apply(store, request, preset.rules) == 1, "cannot apply WebView2 mDNS preset");
+    AskRequest web = request;
+    web.key.proto = Proto::Tcp;
+    web.key.rport = 443;
+    const auto webChoices = RulePresets::Suggest(web);
+    const auto& existing = ChoiceOf(webChoices, IDS_PRESET_WEBVIEW2);
+    Check(existing.rules.size() == 3 && RulePresets::Apply(store, web, existing.rules) == 3 &&
+          store.Count() == 4, "WebView2 mDNS changed the existing web preset");
+    const uint64_t version = store.version();
+    size_t count = 0;
+    const UiLangInfo* languages = UiLangs(count);
+    for (size_t i = 0; i < count; ++i) {
+        SetUiLang(languages[i].lang);
+        const auto localized = RulePresets::Suggest(request);
+        const auto& translated = ChoiceOf(localized, IDS_PRESET_WEBVIEW2_MDNS);
+        const std::wstring title = LoadStringRes(IDS_PRESET_WEBVIEW2_MDNS);
+        const std::wstring name = LoadStringRes(IDS_PRESET_RULE_MDNS);
+        Check(title == L"msedgewebview2.exe: mDNS" && !name.empty() &&
+              translated.title == title && translated.rules.size() == 1 &&
+              translated.rules[0].name == LoadStringResFmt(IDS_PRESET_RULE_NAME_FMT,
+                  title.c_str(), name.c_str()) &&
+              RulePresets::Apply(store, request, translated.rules) == 0 &&
+              store.Count() == 4 && store.version() == version,
+              "localized WebView2 mDNS preset was lost or duplicated");
+    }
+    SetUiLang(previous);
 }
 
 void TestVisualStudioPresets() {
@@ -5185,14 +5381,14 @@ void TestNetbiosBlockPresets() {
         const uint16_t port = static_cast<uint16_t>(137 + i);
         Check(rule.scope == RuleScope::App && EqualNoCase(rule.appPath, request.appPath) &&
               rule.appName == request.appName && !rule.autoName &&
-              rule.action == RuleAction::Block && rule.proto == Proto::Udp && rule.dir == Dir::Out &&
-              rule.conds == (CondProto | CondDirection | CondRemotePort | CondLocalPort) &&
+              rule.action == RuleAction::Block && rule.proto == Proto::Udp && rule.dir == Dir::Unknown &&
+              rule.conds == (CondProto | CondRemotePort | CondLocalPort) &&
               rule.remotePorts.size() == 1 && rule.remotePorts.front().from == port &&
               rule.remotePorts.front().to == port && rule.localPorts.size() == 1 &&
               rule.localPorts.front().from == port && rule.localPorts.front().to == port &&
               rule.remoteAddrs.empty() && rule.localAddrs.empty() && rule.services.empty() &&
               rule.name.find(preset.title) != std::wstring::npos,
-              "NetBIOS block rule lost its action, exact application, paired ports or direction");
+              "NetBIOS block rule lost its action, exact application, paired ports or directionless shape");
     }
     RuleStore store;
     Check(RulePresets::Apply(store, request, preset.rules) == 2 && store.Count() == 2,
@@ -5225,7 +5421,13 @@ void TestNetbiosBlockPresets() {
         AskRequest unrelated = request;
         unrelated.key.rport = unrelated.key.lport = port;
         unrelated.dir = Dir::In;
-        reject(unrelated);
+        const auto incoming = RulePresets::Suggest(unrelated);
+        Check(incoming.size() == 1 &&
+              RuleStore::MatchesRule(preset.rules[port == 137 ? 0 : 1], unrelated.ToQuery()),
+              "directionless NetBIOS block profile missed incoming traffic");
+        RuleAction action = RuleAction::Allow;
+        Check(store.MatchVerdict(unrelated.ToQuery(), action) && action == RuleAction::Block,
+              "directionless NetBIOS rule did not block incoming traffic");
         unrelated.dir = Dir::Out;
         unrelated.key.proto = Proto::Tcp;
         reject(unrelated);
@@ -7637,6 +7839,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 2 && std::string(argv[1]) == "--captured-presets-only") {
             TestNewResources();
+            TestFeedbackOfficeAndWebViewPresets();
             TestIgmpPreset();
             TestIgmpInboundPreset();
             TestEdgeMdnsPreset();
@@ -7694,6 +7897,7 @@ int main(int argc, char** argv) {
         TestAutomaticRuleNames();
         TestAddressListRuleNames();
         TestApplicationSuggestions();
+        TestFeedbackOfficeAndWebViewPresets();
         TestVisualStudioPresets();
         TestIgmpPreset();
         TestIgmpInboundPreset();

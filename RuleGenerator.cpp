@@ -55,11 +55,16 @@ bool IsFile(const std::wstring& path) {
     return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
 }
 
-std::wstring RegistryString(HKEY root, const std::wstring& key, const wchar_t* name, REGSAM view = 0) {
+std::wstring RegistryString(HKEY root, const std::wstring& key, const wchar_t* name,
+                            REGSAM view = 0, LONG* result = nullptr) {
     HKEY handle = nullptr;
-    if (RegOpenKeyExW(root, key.c_str(), 0, KEY_QUERY_VALUE | view, &handle) != ERROR_SUCCESS) return {};
+    LONG status = RegOpenKeyExW(root, key.c_str(), 0, KEY_QUERY_VALUE | view, &handle);
+    if (status != ERROR_SUCCESS) {
+        if (result) *result = status;
+        return {};
+    }
     DWORD type = 0, bytes = 0;
-    LONG status = RegQueryValueExW(handle, name, nullptr, &type, nullptr, &bytes);
+    status = RegQueryValueExW(handle, name, nullptr, &type, nullptr, &bytes);
     std::wstring value;
     if (status == ERROR_SUCCESS && (type == REG_SZ || type == REG_EXPAND_SZ) &&
         bytes >= sizeof(wchar_t) && bytes <= 65536 && bytes % sizeof(wchar_t) == 0) {
@@ -70,6 +75,7 @@ std::wstring RegistryString(HKEY root, const std::wstring& key, const wchar_t* n
         else value.clear();
     }
     RegCloseKey(handle);
+    if (result) *result = status;
     return Expand(value);
 }
 
@@ -150,8 +156,8 @@ void DiscoverServices(std::vector<ServiceCandidate>& out, const std::atomic_bool
         const auto* config = reinterpret_cast<const QUERY_SERVICE_CONFIGW*>(buffer.data());
         const std::wstring image = ServiceImage(config->lpBinaryPathName ? config->lpBinaryPathName : L"");
         if (image.empty() || !RulePresets::MayUseService(FileName(image), entry.name)) continue;
-        const std::wstring key = L"SYSTEM\\CurrentControlSet\\Services\\" + entry.name + L"\\Parameters";
-        std::wstring dll = RegistryString(HKEY_LOCAL_MACHINE, key, L"ServiceDll");
+        const std::wstring key = L"SYSTEM\\CurrentControlSet\\Services\\" + entry.name;
+        std::wstring dll = ReadServiceDll(HKEY_LOCAL_MACHINE, key);
         const bool hasDll = !dll.empty();
         if (dll.size() >= 2 && dll.front() == L'"' && dll.back() == L'"')
             dll = dll.substr(1, dll.size() - 2);
@@ -166,6 +172,15 @@ void DiscoverServices(std::vector<ServiceCandidate>& out, const std::atomic_bool
 }
 
 } // анонимное пространство имён
+
+std::wstring ReadServiceDll(HKEY root, const std::wstring& serviceKey) {
+    LONG status = ERROR_SUCCESS;
+    std::wstring dll = RegistryString(root, serviceKey + L"\\Parameters", L"ServiceDll", 0, &status);
+    // Не подменяем недоступное или повреждённое значение другим файлом.
+    if (status == ERROR_FILE_NOT_FOUND || status == ERROR_PATH_NOT_FOUND)
+        dll = RegistryString(root, serviceKey, L"ServiceDll");
+    return dll;
+}
 
 Result Scan(const std::atomic_bool& cancel, const Progress& progress) {
     std::vector<std::wstring> paths;
@@ -251,6 +266,8 @@ Result Scan(const std::atomic_bool& cancel, const Progress& progress) {
         L"Git\\cmd\\git.exe", L"Git\\mingw64\\libexec\\git-core\\git-remote-https.exe",
         L"Microsoft Office\\root\\Office16\\EXCEL.EXE", L"Microsoft Office\\root\\Office16\\OUTLOOK.EXE",
         L"Microsoft Office\\root\\Office16\\ONENOTE.EXE", L"Microsoft Office\\root\\Office16\\MSACCESS.EXE",
+        L"Microsoft Office\\root\\Office16\\MSPUB.EXE", L"Microsoft Office\\root\\Office16\\POWERPNT.EXE",
+        L"Microsoft Office\\root\\Office16\\WINWORD.EXE",
         L"NVIDIA Corporation\\NvContainer\\nvcontainer.exe", L"NVIDIA Corporation\\Display.NvContainer\\nvdisplay.container.exe"
     };
     static constexpr const wchar_t* user[] = {
@@ -278,6 +295,7 @@ Result Scan(const std::atomic_bool& cancel, const Progress& progress) {
     // Системные приложения и MSIX проверяются только в известных семействах.
     static constexpr const wchar_t* packages[] = {
         L"Microsoft.WindowsStore_*\\WinStore.App.exe", L"Microsoft.Windows.Photos_*\\Photos.exe",
+        L"Microsoft.WindowsFeedbackHub_*\\WinUI3App\\FeedbackHub.exe",
         L"Microsoft.WindowsAlarms_*\\HxCalendarAppImm.exe", L"microsoft.windowscommunicationsapps_*\\HxOutlook.exe",
         L"microsoft.windowscommunicationsapps_*\\HxCalendarAppImm.exe",
         L"Microsoft.MicrosoftOfficeHub_*\\M365Copilot.exe", L"Microsoft.Copilot_*\\CopilotApp.exe",

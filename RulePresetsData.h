@@ -37,6 +37,7 @@ struct Preset {
 
 inline constexpr PortItem pHttps[] = { {443, 443} };
 inline constexpr PortItem pHttp[] = { {80, 80} };
+inline constexpr PortItem pHttpsHttp[] = { {443, 443}, {80, 80} };
 inline constexpr PortItem pDns[] = { {53, 53} };
 inline constexpr PortItem pMail[] = { {465, 465}, {587, 587}, {993, 993}, {995, 995} };
 inline constexpr PortItem pStun[] = { {3478, 3481} };
@@ -265,8 +266,14 @@ inline constexpr NetworkRule lsassHttp[] = { http };
 inline constexpr NetworkRule httpsOnly[] = { https };
 inline constexpr NetworkRule httpOnly[] = { http };
 inline constexpr NetworkRule httpsAndHttp[] = { https, http };
+inline constexpr NetworkRule httpsOrHttp[] = {
+    {IDS_PRESET_RULE_HTTPS_HTTP, Proto::Tcp, Dir::Out, pHttpsHttp}
+};
 inline constexpr NetworkRule webview2[] = {
     https, quic, {IDS_PRESET_RULE_DNS_UDP, Proto::Udp, Dir::Out, pDns, {}, aDoh}
+};
+inline constexpr NetworkRule webview2Mdns[] = {
+    {IDS_PRESET_RULE_MDNS, Proto::Udp, Dir::Unknown, pMdns, pMdns}
 };
 // mDNS ограничен показанными multicast-адресами и портами; DNS — системными серверами.
 inline constexpr NetworkRule copilotApp[] = {
@@ -406,12 +413,12 @@ inline constexpr NetworkRule systemUdpLoopback[] = {
     {IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP, Proto::Udp, Dir::Out, pHttps, {}, aLoopback,
         {}, RuleAction::Allow, aLoopback}
 };
-// Блокируем только исходящий NetBIOS ядра с парными портами, без привязки
-// к адресу подсети: смена интерфейса не должна обходить блокировку.
+// Блокируем NetBIOS с парными портами, без привязки к направлению и адресу
+// подсети: смена интерфейса не должна обходить блокировку.
 inline constexpr NetworkRule netbiosBlock[] = {
-    {IDS_PRESET_RULE_NETBIOS_NS_BLOCK, Proto::Udp, Dir::Out,
+    {IDS_PRESET_RULE_NETBIOS_NS_BLOCK, Proto::Udp, Dir::Unknown,
         pNetbiosNs, pNetbiosNs, {}, {}, RuleAction::Block},
-    {IDS_PRESET_RULE_NETBIOS_DGM_BLOCK, Proto::Udp, Dir::Out,
+    {IDS_PRESET_RULE_NETBIOS_DGM_BLOCK, Proto::Udp, Dir::Unknown,
         pNetbiosDgm, pNetbiosDgm, {}, {}, RuleAction::Block}
 };
 
@@ -498,9 +505,13 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_WINDOWS_BACKUP, L"WindowsBackupClient.exe", httpsOnly},
     {IDS_PRESET_XBOX_PC_APP, L"XboxPcApp.exe", httpsAndHttp},
     {IDS_PRESET_XBOX_PC_APP_FT, L"XboxPcAppFT.exe", httpsOnly},
+    {IDS_PRESET_FEEDBACK_HUB, L"FeedbackHub.exe", httpsOrHttp},
     {IDS_PRESET_WUDF_HOST, L"WUDFHost.exe", loopbackTcpOnly},
     {IDS_PRESET_EXCEL, L"EXCEL.EXE", httpsOnly},
     {IDS_PRESET_MSACCESS, L"MSACCESS.EXE", httpsOnly},
+    {IDS_PRESET_PUBLISHER, L"MSPUB.EXE", httpsOrHttp},
+    {IDS_PRESET_POWERPOINT, L"POWERPNT.EXE", httpsOrHttp},
+    {IDS_PRESET_WORD, L"WINWORD.EXE", httpsOrHttp},
     {IDS_PRESET_WHITEBOARD, L"MicrosoftWhiteboard.exe", httpsOnly},
     {IDS_PRESET_HX_OUTLOOK, L"HxOutlook.exe", httpsAndHttp},
     {IDS_PRESET_PHOTOS, L"Photos.exe", httpsOnly},
@@ -517,6 +528,7 @@ inline constexpr Preset presets[] = {
         Host::AppService, L"MDCoreSvc"},
     {IDS_PRESET_TEAMS_UPDATE, L"ms-teamsupdate.exe", httpsOnly},
     {IDS_PRESET_WEBVIEW2, L"msedgewebview2.exe", webview2},
+    {IDS_PRESET_WEBVIEW2_MDNS, L"msedgewebview2.exe", webview2Mdns},
     {IDS_PRESET_OFFICE_CLIENT, L"OfficeC2RClient.exe", httpsOnly},
     {IDS_PRESET_OFFICE_SERVICE, L"OfficeClickToRun.exe", httpsAndHttp,
         Host::AppService, L"ClickToRunSvc"},
