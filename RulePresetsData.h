@@ -163,6 +163,21 @@ inline constexpr NetworkRule loopbackTcp4HostIn = {
     IDS_PRESET_RULE_LOOPBACK_TCP, Proto::Tcp, Dir::In, {}, {}, aLoopback4Host,
     {}, RuleAction::Allow, aLoopback4Host
 };
+// Для этих шаблонов допустимы только точные адреса на обоих концах.
+inline constexpr NetworkRule loopbackTcp4HostAny = {
+    IDS_PRESET_RULE_LOOPBACK_TCP_IPV4, Proto::Tcp, Dir::Unknown, {}, {}, aLoopback4Host,
+    {}, RuleAction::Allow, aLoopback4Host
+};
+inline constexpr NetworkRule systemTcpLoopback[] = {
+    loopbackTcp4HostAny,
+    {IDS_PRESET_RULE_LOOPBACK_TCP_IPV6, Proto::Tcp, Dir::Unknown, {}, {}, aLoopback6Host,
+        {}, RuleAction::Allow, aLoopback6Host}
+};
+inline constexpr NetworkRule pwshTcpLoopback[] = {
+    loopbackTcp4HostAny,
+    {IDS_PRESET_RULE_LOOPBACK_TCP_IPV6, Proto::Tcp, Dir::Out, {}, {}, aLoopback6Host,
+        {}, RuleAction::Allow, aLoopback6Host}
+};
 inline constexpr NetworkRule loopbackTcpIn = {
     IDS_PRESET_RULE_LOOPBACK_TCP, Proto::Tcp, Dir::In, {}, {}, aLoopback,
     {}, RuleAction::Allow, aLoopback
@@ -473,6 +488,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_YANDEX_DISK, L"YandexDisk4.exe", yandexDisk},
     {IDS_PRESET_MSI_INSTALLER, L"msiexec.exe", httpOnly, Host::AppService, L"msiserver"},
     {IDS_PRESET_WEB_TOOLS, L"curl.exe;wget.exe;winget.exe;code.exe", web},
+    {IDS_PRESET_PWSH_TCP_LOOPBACK, L"pwsh.exe", pwshTcpLoopback},
     {IDS_PRESET_VISUAL_STUDIO_HTTPS, L"devenv.exe", httpsOnly},
     {IDS_PRESET_VISUAL_STUDIO_WEB, L"devenv.exe", httpsAndHttp},
     {IDS_PRESET_WINDOWS_PACKAGE_MANAGER, L"windowspackagemanagerserver.exe", systemWeb},
@@ -557,6 +573,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_WAAS_MEDIC, L"svchost.exe", httpsOnly, Host::Service, L"WaaSMedicSvc"},
     {IDS_PRESET_DIAGTRACK_BLOCK, L"svchost.exe", httpsBlock, Host::Service, L"DiagTrack"},
     {IDS_PRESET_SHARED_ACCESS_DHCP, L"svchost.exe", sharedAccessDhcp, Host::Service, L"SharedAccess"},
+    {IDS_PRESET_DHCP_CLIENT_PORTS, L"svchost.exe", dhcpClientPorts, Host::Service, L"SharedAccess"},
     {IDS_PRESET_SSDP_LOOPBACK, L"svchost.exe", loopbackUdpOnly, Host::Service, L"SSDPSRV"},
     {IDS_PRESET_BITS, L"svchost.exe", bits, Host::Service, L"BITS"},
     {IDS_PRESET_DELIVERY_WEB, L"svchost.exe", systemWeb, Host::Service, L"DoSvc"},
@@ -573,6 +590,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_RDP_SERVICE, L"svchost.exe", rdpService, Host::Service, L"TermService"},
     {IDS_PRESET_SVCHOST, L"svchost.exe", svchost, Host::SvchostFallback},
     {IDS_PRESET_SYSTEM_SMB_LOOPBACK, L"ntoskrnl.exe", systemSmbLoopback, Host::System},
+    {IDS_PRESET_SYSTEM_TCP_LOOPBACK, L"ntoskrnl.exe", systemTcpLoopback, Host::System},
     {IDS_PRESET_SYSTEM_UDP_LOOPBACK, L"ntoskrnl.exe", systemUdpLoopback, Host::System},
     {IDS_PRESET_NETBIOS_BLOCK, L"ntoskrnl.exe", netbiosBlock, Host::System}
 };

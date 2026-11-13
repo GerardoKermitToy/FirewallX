@@ -178,7 +178,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_GEOLOCATION; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_SYSTEM_TCP_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -4856,16 +4856,18 @@ void TestIncomingDhcpPresets() {
           "repeated DHCP preset duplicated incoming rules");
 }
 
-void TestDhcpClientPortsPreset() {
+void TestDhcpClientPortsPreset(const wchar_t* service) {
     const UiLang previous = CurrentUiLang();
     SetUiLang(UiLang::English);
-    AskRequest request = Request(SystemDirFile(L"svchost.exe"), Proto::Udp, 67, L"192.168.69.254");
+    AskRequest request = Request(SystemDirFile(L"svchost.exe"), Proto::Udp, 67,
+                                 EqualNoCase(service, L"SharedAccess") ? L"172.30.32.1" : L"192.168.69.254");
     request.dir = Dir::In;
     request.key.local = Ip(L"255.255.255.255");
     request.key.lport = 68;
     request.conditionFlags = 1;
-    request.interfaceName = std::make_shared<const std::wstring>(L"VMware Network Adapter VMnet8");
-    SetServices(request.pid, {L"Dhcp"});
+    request.interfaceName = std::make_shared<const std::wstring>(EqualNoCase(service, L"SharedAccess")
+        ? L"vEthernet (Default Switch)" : L"VMware Network Adapter VMnet8");
+    SetServices(request.pid, {service});
 
     const auto choices = RulePresets::Suggest(request);
     const auto& preset = ChoiceOf(choices, IDS_PRESET_DHCP_CLIENT_PORTS);
@@ -4878,7 +4880,7 @@ void TestDhcpClientPortsPreset() {
           rule.remotePorts.size() == 1 && rule.remotePorts.front().from == 67 &&
           rule.remotePorts.front().to == 67 && rule.localPorts.size() == 1 &&
           rule.localPorts.front().from == 68 && rule.localPorts.front().to == 68 &&
-          rule.services.size() == 1 && rule.services.front().name == L"Dhcp" &&
+          rule.services.size() == 1 && rule.services.front().name == service &&
           rule.remoteAddrs.empty() && rule.localAddrs.empty() && rule.interfaceName.empty() &&
           rule.conditionFlags == 0 && !rule.autoName && !rule.name.empty(),
           "DHCP client rule did not preserve the selected conditions");
@@ -4921,10 +4923,16 @@ void TestDhcpClientPortsPreset() {
     SetServices(request.pid, {L"Dnscache"});
     Check(!hasPreset(request) && !RuleStore::MatchesRule(rule, request.ToQuery()),
           "DHCP client rule accepted another service");
-    SetServices(request.pid, {L"Dhcp", L"Dnscache"});
+    SetServices(request.pid, {service, L"Dnscache"});
     Check(!hasPreset(request) && !RuleStore::MatchesRule(rule, request.ToQuery()),
           "DHCP client preset guessed a service in a shared process");
-    SetServices(request.pid, {L"Dhcp"});
+    const wchar_t* otherService = EqualNoCase(service, L"Dhcp") ? L"SharedAccess" : L"Dhcp";
+    SetServices(request.pid, {otherService});
+    Check(!RuleStore::MatchesRule(rule, request.ToQuery()),
+          "DHCP client rule matched the other DHCP service");
+    const auto otherChoices = RulePresets::Suggest(request);
+    const auto& otherRules = ChoiceOf(otherChoices, IDS_PRESET_DHCP_CLIENT_PORTS).rules;
+    SetServices(request.pid, {service});
 
     RuleStore store;
     Check(RulePresets::Apply(store, request, preset.rules) == 1 && store.Count() == 1,
@@ -4936,6 +4944,9 @@ void TestDhcpClientPortsPreset() {
           ChoiceOf(translated, IDS_PRESET_DHCP_CLIENT_PORTS).rules) == 0 &&
           store.Count() == 1 && store.version() == version,
           "DHCP client rule was duplicated after a language change");
+    Check(RulePresets::Apply(store, request, otherRules) == 1 && store.Count() == 2,
+          "different DHCP services were deduplicated into one rule");
+    SetServices(request.pid, {});
     SetUiLang(previous);
 }
 
@@ -5370,6 +5381,124 @@ void TestDiscoveryDeliveryPresets() {
           "full DoSvc profile duplicated existing web/DNS rules");
 }
 
+void TestExactTcpLoopbackPresets() {
+    struct Profile {
+        std::wstring path;
+        UINT titleId;
+        bool system;
+    };
+    const Profile profiles[] = {
+        {L"C:\\Program Files\\PowerShell\\7\\pwsh.exe", IDS_PRESET_PWSH_TCP_LOOPBACK, false},
+        {KernelImagePath(), IDS_PRESET_SYSTEM_TCP_LOOPBACK, true}
+    };
+    const UiLang previous = CurrentUiLang();
+    for (const Profile& profile : profiles) {
+        SetUiLang(UiLang::English);
+        AskRequest request = Request(profile.path, Proto::Tcp, 47001, L"127.0.0.1");
+        request.key.local = Ip(L"127.0.0.1");
+        request.key.lport = 52774;
+        request.dir = profile.system ? Dir::In : Dir::Out;
+        request.interfaceName = std::make_shared<const std::wstring>(L"Loopback Pseudo-Interface 1");
+        request.conditionFlags = 1;
+        if (profile.system) {
+            request.pid = 4;
+            request.process.reset();
+            request.appName = L"SYSTEM";
+        }
+        const auto offered = [&](const AskRequest& flow) {
+            const auto choices = RulePresets::Suggest(flow);
+            return std::any_of(choices.begin(), choices.end(), [&](const auto& choice) {
+                return choice.titleId == profile.titleId;
+            });
+        };
+        const auto choices = RulePresets::Suggest(request);
+        const auto& preset = ChoiceOf(choices, profile.titleId);
+        Check(preset.rules.size() == 2 && preset.title == (profile.system
+                  ? L"SYSTEM: Local connections (loopback), TCP"
+                  : L"pwsh.exe: Local connections (loopback), TCP"),
+              "exact TCP loopback preset lost its title or rules");
+        for (size_t i = 0; i < preset.rules.size(); ++i) {
+            const Rule& rule = preset.rules[i];
+            const wchar_t* address = i == 0 ? L"127.0.0.1" : L"::1";
+            const bool outbound = !profile.system && i == 1;
+            Check(rule.scope == RuleScope::App && EqualNoCase(rule.appPath, request.appPath) &&
+                  rule.action == RuleAction::Allow && rule.proto == Proto::Tcp &&
+                  rule.dir == (outbound ? Dir::Out : Dir::Unknown) &&
+                  rule.conds == (CondProto | CondRemoteAddr | CondLocalAddr |
+                                 (outbound ? CondDirection : 0)) &&
+                  rule.remoteAddrs.size() == 1 && rule.localAddrs.size() == 1 &&
+                  rule.remoteAddrs[0].addr == Ip(address) && rule.remoteAddrs[0].prefix == -1 &&
+                  rule.localAddrs[0].addr == Ip(address) && rule.localAddrs[0].prefix == -1 &&
+                  rule.remotePorts.empty() && rule.localPorts.empty() && rule.services.empty() &&
+                  rule.interfaceName.empty() && rule.conditionFlags == 0 && !rule.autoName,
+                  "exact TCP loopback rule lost its scope or pinned a captured condition");
+            for (Dir direction : {Dir::In, Dir::Out}) {
+                for (uint16_t port : {uint16_t{1}, uint16_t{47001}, uint16_t{65535}}) {
+                    AskRequest flow = request;
+                    flow.dir = direction;
+                    flow.key = MakeFlowKey(Proto::Tcp, Ip(address), Ip(address), port, 12345);
+                    flow.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
+                    flow.conditionFlags.reset();
+                    Check(offered(flow) && RuleStore::MatchesRule(rule, flow.ToQuery()),
+                          "exact TCP loopback rule depended on ports, interface, flags or direction");
+                }
+            }
+            for (bool changeLocal : {false, true}) {
+                AskRequest flow = request;
+                flow.key = MakeFlowKey(Proto::Tcp, Ip(address), Ip(address), 52774, 47001);
+                const wchar_t* other = i == 0 ? L"127.0.0.2" : L"::2";
+                if (changeLocal) flow.key.local = Ip(other);
+                else flow.key.remote = Ip(other);
+                Check(!offered(flow) && !RuleStore::MatchesRule(rule, flow.ToQuery()),
+                      "exact TCP loopback rule accepted another local or remote address");
+            }
+        }
+        AskRequest wrong = request;
+        wrong.key.proto = Proto::Udp;
+        Check(!offered(wrong) && std::none_of(preset.rules.begin(), preset.rules.end(), [&](const Rule& rule) {
+                  return RuleStore::MatchesRule(rule, wrong.ToQuery());
+              }), "exact TCP loopback rule accepted UDP");
+        wrong = request;
+        wrong.key.local = Ip(L"::1");
+        Check(!offered(wrong), "exact TCP loopback preset accepted different address families");
+        wrong = request;
+        wrong.appPath = profile.system ? L"C:\\Apps\\ntoskrnl.exe" : L"D:\\Other\\pwsh.exe";
+        Check(offered(wrong) == !profile.system &&
+              !RuleStore::MatchesRule(preset.rules[0], wrong.ToQuery()),
+              "exact TCP loopback preset lost its executable or concrete path scope");
+        wrong = request;
+        wrong.ownerAmbiguous = true;
+        Check(!offered(wrong), "ambiguous owner received an exact TCP loopback preset");
+
+        RuleStore store;
+        Check(RulePresets::Apply(store, request, preset.rules) == 2 && store.Count() == 2,
+              "exact TCP loopback preset was not applied");
+        RuleAction verdict = RuleAction::Block;
+        Check(store.MatchVerdict(request.ToQuery(), verdict) && verdict == RuleAction::Allow,
+              "exact TCP loopback preset did not produce an allow verdict");
+        const uint64_t version = store.version();
+        size_t count = 0;
+        const UiLangInfo* languages = UiLangs(count);
+        for (size_t i = 0; i < count; ++i) {
+            SetUiLang(languages[i].lang);
+            const auto translated = RulePresets::Suggest(request);
+            const auto& localized = ChoiceOf(translated, profile.titleId);
+            const std::wstring title = LoadStringRes(profile.titleId);
+            Check(!title.empty() && localized.title == title && localized.rules.size() == 2 &&
+                  RulePresets::Apply(store, request, localized.rules) == 0 &&
+                  store.Count() == 2 && store.version() == version,
+                  "localized exact TCP loopback preset was lost or duplicated");
+            for (size_t j = 0; j < localized.rules.size(); ++j) {
+                const std::wstring name = LoadStringRes(j == 0 ? IDS_PRESET_RULE_LOOPBACK_TCP_IPV4
+                                                               : IDS_PRESET_RULE_LOOPBACK_TCP_IPV6);
+                Check(localized.rules[j].name == LoadStringResFmt(IDS_PRESET_RULE_NAME_FMT,
+                          title.c_str(), name.c_str()), "exact TCP loopback rule name was not localized");
+            }
+        }
+    }
+    SetUiLang(previous);
+}
+
 void TestSystemLoopbackPresets() {
     AskRequest smb = Request(KernelImagePath(), Proto::Tcp, 445, L"::1");
     smb.pid = 4;
@@ -5386,7 +5515,7 @@ void TestSystemLoopbackPresets() {
     const size_t reads = serviceReads;
     const auto smbChoices = RulePresets::Suggest(smb);
     const auto udpChoices = RulePresets::Suggest(udp);
-    Check(smbChoices.size() == 1 && udpChoices.size() == 1 && serviceReads == reads,
+    Check(smbChoices.size() == 2 && udpChoices.size() == 1 && serviceReads == reads,
           "System loopback profiles queried SCM or suggested unrelated permissions");
     const auto& smbRules = ChoiceOf(smbChoices, IDS_PRESET_SYSTEM_SMB_LOOPBACK).rules;
     const auto& udpRules = ChoiceOf(udpChoices, IDS_PRESET_SYSTEM_UDP_LOOPBACK).rules;
@@ -5427,7 +5556,8 @@ void TestSystemLoopbackPresets() {
             connection.dir = direction;
             connection.key = MakeFlowKey(proto, Ip(address), Ip(address), localPort, remotePort);
             const auto choices = RulePresets::Suggest(connection);
-            Check(choices.size() == 1 && ChoiceOf(choices, titleId).titleId == titleId,
+            Check(choices.size() == (proto == Proto::Tcp ? 2u : 1u) &&
+                  ChoiceOf(choices, titleId).titleId == titleId,
                   "System loopback profile did not cover a pictured IPv4 or IPv6 connection");
             RuleAction action = RuleAction::Block;
             Check(store.MatchVerdict(connection.ToQuery(), action) && action == RuleAction::Allow,
@@ -5450,8 +5580,11 @@ void TestSystemLoopbackPresets() {
         wrong.key.proto = proto;
         wrong.key.rport = port;
         RuleAction action = RuleAction::Block;
-        Check(RulePresets::Suggest(wrong).empty() && !store.MatchVerdict(wrong.ToQuery(), action),
-              "System loopback profile allowed an unrelated protocol or port");
+        const auto choices = RulePresets::Suggest(wrong);
+        Check((proto == Proto::Tcp
+                  ? choices.size() == 1 && choices.front().titleId == IDS_PRESET_SYSTEM_TCP_LOOPBACK
+                  : choices.empty()) && !store.MatchVerdict(wrong.ToQuery(), action),
+              "System SMB or UDP loopback profile allowed an unrelated protocol or port");
     }
     for (const wchar_t* path : {L"C:\\Apps\\ntoskrnl.exe", L"C:\\Apps\\other.exe", L""}) {
         AskRequest wrong = smb;
@@ -7966,6 +8099,10 @@ int main(int argc, char** argv) {
             TestDnscacheMdnsPreset();
             TestCapturedServicePresets();
             TestGeolocationPreset();
+            TestDhcpClientPortsPreset(L"Dhcp");
+            TestDhcpClientPortsPreset(L"SharedAccess");
+            TestExactTcpLoopbackPresets();
+            TestSystemLoopbackPresets();
             std::cout << "Captured connection preset tests passed\n";
             WSACleanup();
             return 0;
@@ -8043,7 +8180,8 @@ int main(int argc, char** argv) {
         TestFirefoxLoopbackPresets();
         TestDnscacheDohPresets();
         TestIncomingDhcpPresets();
-        TestDhcpClientPortsPreset();
+        TestDhcpClientPortsPreset(L"Dhcp");
+        TestDhcpClientPortsPreset(L"SharedAccess");
         TestStoreServicePresets(L"InstallService", IDS_PRESET_INSTALL_SERVICE,
                                 L"150.171.109.198", L"192.168.0.116", 50171);
         TestStoreServicePresets(L"AppXSvc", IDS_PRESET_APPX_DEPLOYMENT,
@@ -8051,6 +8189,7 @@ int main(int argc, char** argv) {
         TestUserPushServicePreset();
         TestLanguagePackPresets();
         TestDiscoveryDeliveryPresets();
+        TestExactTcpLoopbackPresets();
         TestSystemLoopbackPresets();
         TestNetbiosBlockPresets();
         TestServiceSuggestions();

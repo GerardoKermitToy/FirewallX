@@ -200,6 +200,8 @@
 #define IDS_PRESET_WORD                   2291
 #define IDS_PRESET_RULE_HTTPS_HTTP        2292
 #define IDS_PRESET_GEOLOCATION            2293
+#define IDS_PRESET_PWSH_TCP_LOOPBACK      2294
+#define IDS_PRESET_SYSTEM_TCP_LOOPBACK    2295
 
 /* Группы интерфейсов; все переводы также в RulePresets.rc. */
 #define IDS_INTERFACE_UNKNOWN             2110
