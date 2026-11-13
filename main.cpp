@@ -855,6 +855,12 @@ bool App::PreTranslate(MSG& msg) {
 
     if (!hwnd_ || !accel_ || root != hwnd_) return false;
 
+    if (msg.hwnd == list_.hwnd() && msg.message == WM_KEYDOWN &&
+        msg.wParam == 'C' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+        CopyRows(true);
+        return true;
+    }
+
     if (edFilter_ && msg.hwnd == edFilter_) {
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE) {
             SetWindowTextW(edFilter_, L"");

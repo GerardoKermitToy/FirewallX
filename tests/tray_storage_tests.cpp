@@ -1,6 +1,54 @@
 // Проверяется настоящий оконный код без App::Init: драйвер, служба и база
 // пользователя не запускаются. Меняются только окна внутри процесса теста.
+#include "../Common.h"
+
+namespace {
+HWND clipboardProbe = nullptr;
+bool probeClipboard = false;
+bool clipboardOpen = false;
+std::wstring clipboardText;
+
+BOOL TestOpenClipboard(HWND owner) {
+    if (!probeClipboard) return OpenClipboard(owner);
+    clipboardProbe = owner;
+    clipboardOpen = true;
+    return TRUE;
+}
+
+BOOL TestEmptyClipboard() {
+    if (!probeClipboard) return EmptyClipboard();
+    clipboardText.clear();
+    return clipboardOpen;
+}
+
+HANDLE TestSetClipboardData(UINT format, HANDLE data) {
+    if (!probeClipboard) return SetClipboardData(format, data);
+    if (!clipboardOpen || format != CF_UNICODETEXT) return nullptr;
+    const auto* text = static_cast<const wchar_t*>(GlobalLock(data));
+    if (!text) return nullptr;
+    clipboardText = text;
+    GlobalUnlock(data);
+    GlobalFree(data);
+    return reinterpret_cast<HANDLE>(1);
+}
+
+BOOL TestCloseClipboard() {
+    if (!probeClipboard) return CloseClipboard();
+    clipboardOpen = false;
+    return TRUE;
+}
+}
+
+// Не изменяем настоящий буфер обмена пользователя при проверке сочетания.
+#define OpenClipboard TestOpenClipboard
+#define EmptyClipboard TestEmptyClipboard
+#define SetClipboardData TestSetClipboardData
+#define CloseClipboard TestCloseClipboard
 #include "../main.cpp"
+#undef CloseClipboard
+#undef SetClipboardData
+#undef EmptyClipboard
+#undef OpenClipboard
 
 #include <initializer_list>
 #include <future>
@@ -344,6 +392,89 @@ struct AppStorageTestAccess {
                   "unknown interface placeholder became a group identity");
     }
 
+    static void TestCopyShortcut(App& app) {
+        struct Cleanup {
+            App& app;
+            BYTE keyboard[256]{};
+            bool keyboardSaved = false;
+            ~Cleanup() {
+                if (keyboardSaved) SetKeyboardState(keyboard);
+                probeClipboard = false;
+                clipboardOpen = false;
+                clipboardText.clear();
+                app.list_.SetRows({});
+                if (app.edFilter_) DestroyWindow(app.edFilter_);
+                app.edFilter_ = nullptr;
+                if (app.accel_) DestroyAcceleratorTable(app.accel_);
+                app.accel_ = nullptr;
+            }
+        } cleanup{app};
+
+        ACCEL accelerator{FVIRTKEY, VK_F5, IDM_REFRESH};
+        app.accel_ = CreateAcceleratorTableW(&accelerator, 1);
+        app.edFilter_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD,
+                                       0, 0, 100, 24, app.hwnd_, nullptr, app.inst_, nullptr);
+        CheckTray(app.accel_ && app.edFilter_, "could not create shortcut test controls");
+        CheckTray(GetKeyboardState(cleanup.keyboard) != FALSE, "could not read keyboard state");
+        cleanup.keyboardSaved = true;
+        BYTE keyboard[256];
+        std::memcpy(keyboard, cleanup.keyboard, sizeof(keyboard));
+        keyboard[VK_CONTROL] |= 0x80;
+        keyboard[VK_MENU] &= 0x7f;
+        keyboard[VK_SHIFT] &= 0x7f;
+        CheckTray(SetKeyboardState(keyboard) != FALSE, "could not set Ctrl state");
+
+        std::vector<TreeList::Row> rows(3);
+        rows[0].isGroup = true;
+        rows[0].col[ColProcess] = L"тест.exe";
+        rows[0].col[ColPid] = L"1234";
+        rows[1].groupRow = 0;
+        rows[1].col[ColRemote] = L"192.0.2.1:443";
+        rows[1].col[ColProto] = L"TCP";
+        rows[1].tlsDomainLabel = std::make_shared<const std::wstring>(L"пример.рф");
+        rows[2].groupRow = 0;
+        rows[2].col[ColRemote] = L"192.0.2.2:80";
+        app.list_.SetRows(std::move(rows));
+        app.list_.Select(1);
+        CheckTray(app.list_.Selected() == 1, "could not select a connection for copying");
+
+        probeClipboard = true;
+        clipboardProbe = nullptr;
+        MSG msg{};
+        msg.hwnd = app.list_.hwnd();
+        msg.message = WM_KEYDOWN;
+        msg.wParam = 'C';
+        CheckTray(app.PreTranslate(msg) && clipboardProbe == app.hwnd_ && !clipboardOpen &&
+                  clipboardText == L"тест.exe пример.рф\t192.0.2.1:443\t\t\t\t1234\t\tTCP\t\t\r\n",
+                  "Ctrl+C did not copy exactly the selected Unicode connection row");
+
+        clipboardProbe = nullptr;
+        clipboardText = L"unchanged";
+        msg.hwnd = app.edFilter_;
+        CheckTray(!app.PreTranslate(msg) && !clipboardProbe && clipboardText == L"unchanged",
+                  "Ctrl+C in the filter was intercepted by the list");
+        msg.hwnd = app.hwnd_;
+        CheckTray(!app.PreTranslate(msg) && !clipboardProbe,
+                  "Ctrl+C outside the list copied a connection");
+        msg.hwnd = app.list_.hwnd();
+        msg.wParam = 'X';
+        CheckTray(!app.PreTranslate(msg) && !clipboardProbe,
+                  "another Ctrl shortcut copied a connection");
+        msg.wParam = 'C';
+        keyboard[VK_CONTROL] &= 0x7f;
+        CheckTray(SetKeyboardState(keyboard) != FALSE, "could not clear Ctrl state");
+        CheckTray(!app.PreTranslate(msg) && !clipboardProbe,
+                  "C without Ctrl copied a connection");
+
+        keyboard[VK_CONTROL] |= 0x80;
+        CheckTray(SetKeyboardState(keyboard) != FALSE, "could not restore Ctrl state");
+        ListView_SetItemState(app.list_.hwnd(), -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+        CheckTray(app.list_.Selected() < 0 && app.PreTranslate(msg) && !clipboardProbe &&
+                  clipboardText == L"unchanged",
+                  "Ctrl+C without a selection changed the clipboard");
+        std::cout << "copy shortcut: selected row, empty selection and focus passed\n";
+    }
+
     static void Test() {
         App app;
         app.inst_ = GetModuleHandleW(nullptr);
@@ -367,6 +498,7 @@ struct AppStorageTestAccess {
         app.status_ = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, WS_CHILD | WS_VISIBLE,
                                       0, 0, 0, 0, app.hwnd_, nullptr, app.inst_, nullptr);
         CheckTray(app.status_ != nullptr, "could not create tray storage status bar");
+        TestCopyShortcut(app);
 
         // Explorer может ещё не создать значок, но автозапуск не должен показывать окно.
         app.ShowAtStartup(SW_SHOWNOACTIVATE, true);
