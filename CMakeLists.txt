@@ -18,6 +18,11 @@ if(MSVC)
     # Компилятор MSVC собирает исходники проекта параллельно.
     add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/MP>")
 
+    # Для сборки x64 разрешаем использование инструкций SSE4.2.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
+        add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/arch:SSE4.2>")
+    endif()
+
     # Полный PDB без FASTLINK, с сохранением оптимизаций Release.
     add_link_options(
         "$<$<CONFIG:Release>:/DEBUG:FULL>"
