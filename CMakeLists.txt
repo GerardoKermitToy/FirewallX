@@ -23,6 +23,13 @@ if(MSVC)
         add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/arch:SSE4.2>")
     endif()
 
+    # Включаем межмодульную оптимизацию при компиляции и компоновке.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/GL>")
+        # LTCG несовместим с обычной инкрементальной компоновкой.
+        add_link_options(/LTCG /INCREMENTAL:NO)
+    endif()
+
     # Полный PDB без FASTLINK, с сохранением оптимизаций Release.
     add_link_options(
         "$<$<CONFIG:Release>:/DEBUG:FULL>"
