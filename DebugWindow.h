@@ -9,9 +9,15 @@
 // Немодальное окно: таймер и сбор размеров существуют только пока оно открыто.
 class DebugWindow {
 public:
+    struct DriverMemory {
+        std::optional<uint64_t> wfp;
+        std::optional<uint64_t> ndis;
+    };
+
     ~DebugWindow() { Close(); }
     bool Show(HWND owner, HINSTANCE inst,
-              std::function<void(DebugCounters::Snapshot&)> read);
+              std::function<void(DebugCounters::Snapshot&)> read,
+              std::function<DriverMemory()> readDriverMemory = {});
     void Close();
     HWND hwnd() const { return hwnd_; }
 
@@ -21,6 +27,7 @@ private:
     bool Build(HINSTANCE inst);
     void Layout();
     void Refresh();
+    void RefreshDriverMemory();
     void UpdateFonts();
     void Paint(HDC dc);
     int Sc(int px) const { return MulDiv(px, static_cast<int>(dpi_), 96); }
@@ -30,6 +37,7 @@ private:
     Ui::DialogColors colors_{};
     HFONT font_ = nullptr, semibold_ = nullptr;
     std::function<void(DebugCounters::Snapshot&)> read_;
+    std::function<DriverMemory()> readDriverMemory_;
     DebugCounters::Snapshot last_;
     std::wstring busy_;
 };

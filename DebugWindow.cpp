@@ -5,14 +5,20 @@
 
 #include <commctrl.h>
 #include <uxtheme.h>
+#include <winternl.h>
 #include <algorithm>
+#include <cstring>
 #include <iterator>
+#include <new>
+#include <vector>
 
 namespace {
 
 constexpr wchar_t kClass[] = L"FirewallXDebugWindow";
 constexpr UINT_PTR kTimer = 1;
+constexpr UINT_PTR kDriverMemoryTimer = 2;
 constexpr int kListId = 100;
+constexpr int kDriverMemoryRows = 2;
 
 // Технические подписи окна намеренно всегда английские.
 constexpr const wchar_t* kLabels[] = {
@@ -60,10 +66,69 @@ constexpr const wchar_t* kLabels[] = {
 };
 static_assert(std::size(kLabels) == DebugCounters::Count);
 
+// Формат ответа SystemPoolTagInformation в NtQuerySystemInformation.
+struct PoolTag {
+    char tag[4];
+    ULONG pagedAllocs;
+    ULONG pagedFrees;
+    SIZE_T pagedUsed;
+    ULONG nonPagedAllocs;
+    ULONG nonPagedFrees;
+    SIZE_T nonPagedUsed;
+};
+
+struct PoolTagInformation {
+    ULONG count;
+    PoolTag tags[1];
+};
+
+DebugWindow::DriverMemory ReadDriverMemory() {
+    constexpr auto infoClass = static_cast<SYSTEM_INFORMATION_CLASS>(22);
+    constexpr ULONG lengthMismatch = 0xC0000004;
+    constexpr size_t maxBufferSize = 64 * 1024 * 1024;
+    try {
+        std::vector<std::byte> buffer(256 * 1024);
+        for (;;) {
+            ULONG length = 0;
+            const NTSTATUS status = NtQuerySystemInformation(infoClass, buffer.data(),
+                static_cast<ULONG>(buffer.size()), &length);
+            if (static_cast<ULONG>(status) == lengthMismatch) {
+                const size_t next = std::max(buffer.size() * 2, static_cast<size_t>(length));
+                if (next > maxBufferSize) return {};
+                buffer.resize(next);
+                continue;
+            }
+            if (status < 0 || length > buffer.size() ||
+                length < offsetof(PoolTagInformation, tags)) return {};
+
+            ULONG count = 0;
+            std::memcpy(&count, buffer.data(), sizeof(count));
+            const size_t offset = offsetof(PoolTagInformation, tags);
+            if (count > (length - offset) / sizeof(PoolTag)) return {};
+
+            DebugWindow::DriverMemory result{0, 0};
+            for (ULONG i = 0; i < count; ++i) {
+                PoolTag entry{};
+                std::memcpy(&entry, buffer.data() + offset + static_cast<size_t>(i) * sizeof(entry),
+                            sizeof(entry));
+                const uint64_t bytes = static_cast<uint64_t>(entry.pagedUsed) + entry.nonPagedUsed;
+                if (std::memcmp(entry.tag, "PMrs", sizeof(entry.tag)) == 0)
+                    *result.wfp += bytes;
+                else if (std::memcmp(entry.tag, "FwXn", sizeof(entry.tag)) == 0)
+                    *result.ndis += bytes;
+            }
+            return result;
+        }
+    } catch (const std::bad_alloc&) {
+        return {};
+    }
+}
+
 } // namespace
 
 bool DebugWindow::Show(HWND owner, HINSTANCE inst,
-                       std::function<void(DebugCounters::Snapshot&)> read) {
+                       std::function<void(DebugCounters::Snapshot&)> read,
+                       std::function<DriverMemory()> readDriverMemory) {
     if (hwnd_) {
         ShowWindow(hwnd_, IsIconic(hwnd_) ? SW_RESTORE : SW_SHOW);
         SetForegroundWindow(hwnd_);
@@ -87,6 +152,7 @@ bool DebugWindow::Show(HWND owner, HINSTANCE inst,
     if (!dpi_) dpi_ = 96;
     colors_ = Ui::DialogPalette();
     read_ = std::move(read);
+    readDriverMemory_ = std::move(readDriverMemory);
     const DWORD style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
     const DWORD exStyle = WS_EX_CONTROLPARENT | WS_EX_NOINHERITLAYOUT;
     RECT frame{ 0, 0, Sc(720), Sc(590) };
@@ -105,6 +171,7 @@ bool DebugWindow::Show(HWND owner, HINSTANCE inst,
                              x, y, width, height, owner, nullptr, inst, this);
     if (!h) {
         read_ = {};
+        readDriverMemory_ = {};
         return false;
     }
     ShowWindow(h, SW_SHOW);
@@ -118,7 +185,7 @@ void DebugWindow::Close() {
 
 bool DebugWindow::Build(HINSTANCE inst) {
     Ui::KeepLeftToRight(hwnd_);
-    note_ = CreateWindowExW(0, L"STATIC", L"Current process only. Updates every second. "
+    note_ = CreateWindowExW(0, L"STATIC", L"Process collections: 1 s. Driver pool (system-wide): 1 min.\n"
         L"Busy means a collection is locked; diagnostics never waits for it.",
         WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd_, nullptr, inst, nullptr);
     list_ = CreateWindowExW(0, WC_LISTVIEWW, L"",
@@ -138,16 +205,26 @@ bool DebugWindow::Build(HINSTANCE inst) {
     for (int col = 0; col < 2; ++col) {
         LVCOLUMNW column{};
         column.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_FMT;
-        column.pszText = const_cast<wchar_t*>(col ? L"Entries" : L"Collection");
+        column.pszText = const_cast<wchar_t*>(col ? L"Value" : L"Collection");
         column.cx = Sc(col ? 120 : 540);
         column.fmt = col ? LVCFMT_RIGHT : LVCFMT_LEFT;
         if (ListView_InsertColumn(list_, col, &column) < 0) return false;
     }
     busy_ = L"Busy";
+    const wchar_t* driverLabels[] = { L"WFP driver / pool memory (PMrs) / bytes",
+                                      L"NDIS driver / pool memory (FwXn) / bytes" };
+    for (int i = 0; i < kDriverMemoryRows; ++i) {
+        LVITEMW item{};
+        item.mask = LVIF_TEXT;
+        item.iItem = i;
+        item.pszText = const_cast<wchar_t*>(driverLabels[i]);
+        if (ListView_InsertItem(list_, &item) < 0) return false;
+        ListView_SetItemText(list_, i, 1, const_cast<wchar_t*>(L"Unavailable"));
+    }
     for (size_t i = 0; i < std::size(kLabels); ++i) {
         LVITEMW item{};
         item.mask = LVIF_TEXT;
-        item.iItem = static_cast<int>(i);
+        item.iItem = static_cast<int>(i) + kDriverMemoryRows;
         const UINT labelId = i == DebugCounters::FlowNdisConnections
             ? IDS_DEBUG_NDIS_CONNECTIONS : IDS_DEBUG_INTERFACE_CANDIDATES;
         std::wstring label = kLabels[i] ? kLabels[i] : LoadStringRes(labelId);
@@ -212,10 +289,21 @@ void DebugWindow::Refresh() {
         if (sample.values[i] == last_.values[i]) [[likely]] continue;
         wchar_t number[32]{};
         if (sample.values[i]) swprintf_s(number, L"%llu", *sample.values[i]);
-        ListView_SetItemText(list_, static_cast<int>(i), 1,
+        ListView_SetItemText(list_, static_cast<int>(i) + kDriverMemoryRows, 1,
                              sample.values[i] ? number : busy_.data());
     }
     last_ = sample;
+}
+
+void DebugWindow::RefreshDriverMemory() {
+    const auto sample = readDriverMemory_ ? readDriverMemory_() : ReadDriverMemory();
+    const std::optional<uint64_t> values[] = { sample.wfp, sample.ndis };
+    for (int i = 0; i < kDriverMemoryRows; ++i) {
+        wchar_t number[32]{};
+        if (values[i]) swprintf_s(number, L"%llu", *values[i]);
+        ListView_SetItemText(list_, i, 1,
+                             values[i] ? number : const_cast<wchar_t*>(L"Unavailable"));
+    }
 }
 
 LRESULT CALLBACK DebugWindow::Thunk(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
@@ -233,7 +321,13 @@ LRESULT DebugWindow::Handle(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         hwnd_ = h;
         if (!Build(reinterpret_cast<CREATESTRUCTW*>(lp)->hInstance)) return -1;
         Refresh();
-        return SetTimer(h, kTimer, 1000, nullptr) ? 0 : -1;
+        RefreshDriverMemory();
+        if (!SetTimer(h, kTimer, 1000, nullptr)) return -1;
+        if (!SetTimer(h, kDriverMemoryTimer, 60000, nullptr)) {
+            KillTimer(h, kTimer);
+            return -1;
+        }
+        return 0;
     case WM_ERASEBKGND:
         Paint(reinterpret_cast<HDC>(wp));
         return 1;
@@ -259,6 +353,7 @@ LRESULT DebugWindow::Handle(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_TIMER:
         if (wp == kTimer) Refresh();
+        else if (wp == kDriverMemoryTimer) RefreshDriverMemory();
         return 0;
     case WM_SIZE:
         if (wp != SIZE_MINIMIZED) Layout();
@@ -286,6 +381,7 @@ LRESULT DebugWindow::Handle(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_DESTROY:
         KillTimer(h, kTimer);
+        KillTimer(h, kDriverMemoryTimer);
         return 0;
     case WM_NCDESTROY:
         if (font_) DeleteObject(font_);
@@ -293,6 +389,7 @@ LRESULT DebugWindow::Handle(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         font_ = semibold_ = nullptr;
         hwnd_ = list_ = note_ = close_ = nullptr;
         read_ = {};
+        readDriverMemory_ = {};
         last_ = {};
         busy_.clear();
         SetWindowLongPtrW(h, GWLP_USERDATA, 0);
