@@ -2574,6 +2574,246 @@ void TestDisplayFlatStorage() {
 
 #include "firewallxndisfilter_flow_tests.h"
 
+namespace {
+
+template <class Value>
+void ReportPortmasterBandwidth(const FlowKey& key, uint64_t sent, uint64_t recv) {
+    Value entry{};
+    std::memcpy(entry.local_ip, key.local.b, sizeof(entry.local_ip));
+    std::memcpy(entry.remote_ip, key.remote.b, sizeof(entry.remote_ip));
+    entry.local_port = key.lport;
+    entry.remote_port = key.rport;
+    entry.transmitted_bytes = sent;
+    entry.received_bytes = recv;
+    FlowStore::Instance().AddBandwidthBatch(ProtoNumber(key.proto), &entry, 1);
+}
+
+void ReportPortmasterUdp(const FlowKey& key, uint64_t sent, uint64_t recv) {
+    if (key.local.family == AF_INET)
+        ReportPortmasterBandwidth<pmkext::BandwidthValueV4>(key, sent, recv);
+    else
+        ReportPortmasterBandwidth<pmkext::BandwidthValueV6>(key, sent, recv);
+}
+
+void TestInactiveUndirectedUdpWithOpenSocket() {
+    FlowStore& store = FlowStore::Instance();
+    constexpr DWORD pid = 4;
+    for (const FlowKey& key : { Udp4(53900), Udp6(53901) }) {
+        store.Reset();
+        FlowStore::SystemSnapshot snapshot;
+        if (key.local.family == AF_INET) {
+            snapshot.udpV4Valid = true;
+            snapshot.udpV4.push_back({ key.local, key.lport, pid });
+        } else {
+            snapshot.udpV6Valid = true;
+            snapshot.udpV6.push_back({ key.local, key.lport, pid });
+        }
+        store.ReplaceSystemSnapshot(snapshot);
+        ReportPortmasterUdp(key, 10, 5);
+        store.ReplaceSystemSnapshot(snapshot);
+
+        auto view = Take();
+        const auto* connection = Connection(Process(view, pid), key);
+        Check(connection && connection->driverBacked && connection->systemBacked &&
+              connection->dir == Dir::Unknown && connection->driver &&
+              connection->driver->events == 0,
+              "bandwidth-only UDP flow was not attached to the open socket");
+        const uint64_t generation = connection->generation;
+        const ULONGLONG firstActivity = connection->lastActivity;
+        Check(firstActivity && connection->driver->lastChangedAt == firstActivity,
+              "bandwidth-only UDP flow has inconsistent activity times");
+
+        // Даже нулевой отчёт драйвера обновляет существующий отсчёт простоя.
+        ::Sleep(20);
+        ReportPortmasterUdp(key, 0, 0);
+        view = Take();
+        connection = Connection(Process(view, pid), key);
+        Check(connection && connection->driver &&
+              connection->lastActivity > firstActivity + 1 &&
+              connection->driver->lastChangedAt == connection->lastActivity,
+              "zero bandwidth report did not refresh UDP activity");
+        const ULONGLONG lastActivity = connection->lastActivity;
+
+        StorageTestAccess::ExpireAt(firstActivity + FlowStore::kInactiveMs + 1);
+        view = Take();
+        Check(Connection(Process(view, pid), key) != nullptr,
+              "recent UDP report did not extend the inactivity timeout");
+        StorageTestAccess::ExpireAt(lastActivity + FlowStore::kInactiveMs);
+        view = Take();
+        Check(Connection(Process(view, pid), key) != nullptr,
+              "UDP flow expired at the timeout boundary");
+        StorageTestAccess::ExpireAt(lastActivity + FlowStore::kInactiveMs + 1);
+        view = Take();
+        const auto process = view.processes.find(pid);
+        Check(process == view.processes.end() || !Connection(process->second, key),
+              "inactive undirected UDP flow survived an open socket");
+
+        // Сокет ОС остаётся видимым, а новый отчёт создаёт новое поколение.
+        store.ReplaceSystemSnapshot(snapshot);
+        view = Take();
+        FlowKey endpoint = MakeFlowKey(Proto::Udp, key.local, IpAddr{}, key.lport, 0);
+        endpoint.remote.family = key.local.family;
+        const auto* socket = Connection(Process(view, pid), endpoint);
+        Check(socket && socket->systemBacked && !socket->driverBacked &&
+              socket->lastActivity == 0,
+              "cleanup removed the system-only UDP socket");
+
+        for (bool includeConnections : { false, true }) {
+            ReportPortmasterUdp(key, 3, 2);
+            store.ReplaceSystemSnapshot(snapshot);
+            view = Take();
+            connection = Connection(Process(view, pid), key);
+            Check(connection && connection->generation != generation &&
+                  connection->dir == Dir::Unknown && connection->systemBacked &&
+                  connection->driver && connection->driver->events == 0,
+                  "new bandwidth report did not recreate the UDP flow");
+            ::Sleep(20);
+            FlowStore::DisplayView display;
+            store.TakeDisplay(display, 0, true, includeConnections);
+            view = Take();
+            const auto remaining = view.processes.find(pid);
+            Check(remaining == view.processes.end() ||
+                  !Connection(remaining->second, key),
+                  "display cleanup retained an inactive undirected UDP flow");
+        }
+    }
+}
+
+void TestUndirectedUdpKeepsFinishedGrace() {
+    FlowStore& store = FlowStore::Instance();
+    constexpr DWORD pid = 4;
+    for (const FlowKey& key : { Udp4(53904), Udp6(53905) }) {
+        for (bool blocked : { false, true }) {
+            store.Reset();
+            FlowStore::SystemSnapshot snapshot;
+            if (key.local.family == AF_INET) {
+                snapshot.udpV4Valid = true;
+                snapshot.udpV4.push_back({ key.local, key.lport, pid });
+            } else {
+                snapshot.udpV6Valid = true;
+                snapshot.udpV6.push_back({ key.local, key.lport, pid });
+            }
+            store.ReplaceSystemSnapshot(snapshot);
+            ReportPortmasterUdp(key, 10, 5);
+            store.ReplaceSystemSnapshot(snapshot);
+            auto view = Take();
+            const auto* connection = Connection(Process(view, pid), key);
+            Check(connection && connection->driver && connection->driver->events == 0,
+                  "bandwidth-only flow is missing before completion");
+            const uint64_t generation = connection->generation;
+            ::Sleep(20);
+            if (blocked) {
+                FlowStore::ConnEvent event = Event(pid);
+                event.dir = Dir::Unknown;
+                store.NoteBlocked(key, event, generation);
+            } else {
+                store.CloseFlow(key, pid, Dir::Unknown, generation);
+            }
+            FlowStore::DisplayView display;
+            store.TakeDisplay(display, 0, true);
+            const auto* shown = DisplayConnection(DisplayProcess(display, pid), key);
+            Check(shown && shown->removeAfter && (shown->blockedAt != 0) == blocked,
+                  "UDP inactivity shortened the finished or blocked grace period");
+            StorageTestAccess::ExpireAt(shown->removeAfter);
+            view = Take();
+            const auto process = view.processes.find(pid);
+            Check(process == view.processes.end() || !Connection(process->second, key),
+                  "completed UDP flow survived its grace period");
+        }
+    }
+
+    store.Reset();
+    PROCESS_INFORMATION child = StartDisposableProcess();
+    const DWORD deadPid = child.dwProcessId;
+    const FlowKey key = Udp4(53906);
+    FlowStore::SystemSnapshot snapshot;
+    snapshot.udpV4Valid = true;
+    snapshot.udpV4.push_back({ key.local, key.lport, deadPid });
+    store.ReplaceSystemSnapshot(snapshot);
+    ReportPortmasterUdp(key, 10, 5);
+    store.ReplaceSystemSnapshot(snapshot);
+    TerminateProcess(child.hProcess, 0);
+    WaitForSingleObject(child.hProcess, INFINITE);
+    CloseHandle(child.hThread);
+    CloseHandle(child.hProcess);
+    ::Sleep(20);
+    FlowStore::DisplayView display;
+    store.TakeDisplay(display, 0, true);
+    const auto& process = DisplayProcess(display, deadPid);
+    Check(process.removeAfter && DisplayConnection(process, key),
+          "UDP inactivity shortened the process exit grace period");
+}
+
+void TestKnownDirectionAndTcpKeepSocketProtection() {
+    FlowStore& store = FlowStore::Instance();
+    constexpr DWORD pid = 4;
+    for (const FlowKey& key : { Udp4(53902), Udp6(53903) }) {
+        for (Dir direction : { Dir::In, Dir::Out }) {
+            store.Reset();
+            OpenDriverFlow(key, pid, direction);
+            ReportPortmasterUdp(key, 10, 5);
+            FlowStore::SystemSnapshot snapshot;
+            if (key.local.family == AF_INET) {
+                snapshot.udpV4Valid = true;
+                snapshot.udpV4.push_back({ key.local, key.lport, pid });
+            } else {
+                snapshot.udpV6Valid = true;
+                snapshot.udpV6.push_back({ key.local, key.lport, pid });
+            }
+            store.ReplaceSystemSnapshot(snapshot);
+            auto view = Take();
+            const auto* connection = Connection(Process(view, pid), key);
+            Check(connection && connection->driver && connection->systemBacked,
+                  "directed UDP flow was not attached to the open socket");
+            const ULONGLONG lastActivity = std::max(
+                connection->lastActivity, connection->driver->lastChangedAt);
+            StorageTestAccess::ExpireAt(lastActivity + FlowStore::kInactiveMs + 1);
+            view = Take();
+            connection = Connection(Process(view, pid), key);
+            Check(connection && connection->dir == direction && connection->driver &&
+                  connection->driver->countersActive,
+                  "open socket failed to protect directed UDP flow");
+        }
+    }
+
+    for (const FlowKey& key : { Tcp4(46900), Tcp6(46901) }) {
+        store.Reset();
+        OpenDriverFlow(key, pid, Dir::Unknown);
+        store.AddBandwidth(key, 10, 5);
+        FlowStore::SystemSnapshot snapshot;
+        FlowStore::SystemTcpConnection listener;
+        listener.key = key;
+        listener.key.local = IpAddr{};
+        listener.key.local.family = key.local.family;
+        listener.key.remote = listener.key.local;
+        listener.key.rport = 0;
+        listener.pid = pid;
+        listener.state = MIB_TCP_STATE_LISTEN;
+        if (key.local.family == AF_INET) {
+            snapshot.tcpV4Valid = true;
+            snapshot.tcpV4.push_back(listener);
+        } else {
+            snapshot.tcpV6Valid = true;
+            snapshot.tcpV6.push_back(listener);
+        }
+        store.ReplaceSystemSnapshot(snapshot);
+        auto view = Take();
+        const auto* connection = Connection(Process(view, pid), key);
+        Check(connection && connection->driver,
+              "undirected TCP flow is missing before cleanup");
+        const ULONGLONG lastActivity = std::max(
+            connection->lastActivity, connection->driver->lastChangedAt);
+        StorageTestAccess::ExpireAt(lastActivity + FlowStore::kInactiveMs + 1);
+        view = Take();
+        connection = Connection(Process(view, pid), key);
+        Check(connection && connection->dir == Dir::Unknown && connection->driver &&
+              connection->driver->countersActive,
+              "UDP cleanup changed listener protection for TCP");
+    }
+}
+
+} // namespace
+
 int main() {
     TestNdisFlows();
     TestSnapshotArrayLifetime();
@@ -2591,6 +2831,9 @@ int main() {
     TestUdpEndpointDoesNotDuplicateConcreteFlow();
     TestUdpBandwidthUsesCurrentLocalEndpointOwner();
     TestListenerProtectsDriverTraffic();
+    TestInactiveUndirectedUdpWithOpenSocket();
+    TestUndirectedUdpKeepsFinishedGrace();
+    TestKnownDirectionAndTcpKeepSocketProtection();
     TestEndedOwnersExpireWithListener();
     TestInactiveEntriesWithoutListenerExpire();
     TestLocalConnectionEndClosesReverseFlow();

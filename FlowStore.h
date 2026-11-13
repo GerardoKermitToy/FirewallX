@@ -532,7 +532,8 @@ private:
     void ResetPeriodsLocked();
 
     bool ExpireConnectionLocked(ConnectionRecord& connection,
-                                ULONGLONG now, ULONGLONG inactiveMs);
+                                ULONGLONG now, ULONGLONG inactiveMs,
+                                bool processFinishing);
     void ExpireLocked(ULONGLONG now, ULONGLONG inactiveMs);
     static bool OwnerExpired(const ConnectionOwnerIndexEntry& owner,
                              ULONGLONG now, ULONGLONG inactiveMs);

@@ -1627,7 +1627,8 @@ void FlowStore::RemoveEmptyProcessesLocked() {
 }
 
 bool FlowStore::ExpireConnectionLocked(
-    ConnectionRecord& connection, ULONGLONG now, ULONGLONG inactiveMs) {
+    ConnectionRecord& connection, ULONGLONG now, ULONGLONG inactiveMs,
+    bool processFinishing) {
     bool expired = connection.removeAfter && now >= connection.removeAfter;
     const bool ndis = connection.key.source == TrafficSource::Ndis;
     if (ndis) {
@@ -1638,8 +1639,18 @@ bool FlowStore::ExpireConnectionLocked(
                   now - connection.lastActivity > kOtherInactiveMs;
     } else if (!expired) {
         const DriverDetails* details = DriverDetailsOf(connection);
-        if (details && details->countersActive && details->lastChangedAt &&
-            now - details->lastChangedAt > inactiveMs) {
+        // UDP из отчёта о трафике может не иметь события открытия и направления.
+        // Открытый сокет не сохраняет такой обмен после простоя, но окна
+        // завершения соединения и процесса остаются без изменений.
+        const bool inactiveUndirectedUdp =
+            connection.key.proto == Proto::Udp && connection.driverBacked &&
+            connection.dir == Dir::Unknown && !connection.removeAfter &&
+            !processFinishing && connection.lastActivity &&
+            now - connection.lastActivity > inactiveMs &&
+            (!details || !details->lastChangedAt ||
+             now - details->lastChangedAt > inactiveMs);
+        if (!inactiveUndirectedUdp && details && details->countersActive &&
+            details->lastChangedAt && now - details->lastChangedAt > inactiveMs) {
             bool localListener = false;
             if (const ConnectionOwnerIndex* index = OwnerIndexFor(
                     ownerIndexes_, connection.key)) {
@@ -1659,9 +1670,10 @@ bool FlowStore::ExpireConnectionLocked(
         }
 
         const bool hasDriver = details && details->countersActive;
-        expired = !connection.systemBacked && !hasDriver &&
-                  connection.lastActivity &&
-                  now - connection.lastActivity > inactiveMs;
+        expired = inactiveUndirectedUdp ||
+                  (!connection.systemBacked && !hasDriver &&
+                   connection.lastActivity &&
+                   now - connection.lastActivity > inactiveMs);
     }
     if (!expired) [[likely]] return false;
 
@@ -1685,7 +1697,8 @@ void FlowStore::ExpireLocked(ULONGLONG now, ULONGLONG inactiveMs) {
     for (auto process = processes_.begin(); process != processes_.end();) {
         ConnectionTable& connections = process->second.connections;
         for (auto it = connections.begin(); it != connections.end();) {
-            it = ExpireConnectionLocked(it->second, now, inactiveMs)
+            it = ExpireConnectionLocked(it->second, now, inactiveMs,
+                                        process->second.removeAfter != 0)
                 ? connections.erase(it) : std::next(it);
         }
         if (connections.empty() && !process->second.removeAfter) {
@@ -1877,7 +1890,8 @@ void FlowStore::TakeDisplay(DisplayView& out, ULONGLONG inactiveMs,
         for (auto it = process.connections.begin();
              it != process.connections.end();) {
             const ConnectionRecord& stored = it->second;
-            if (ExpireConnectionLocked(it->second, now, inactiveMs)) [[unlikely]] {
+            if (ExpireConnectionLocked(it->second, now, inactiveMs,
+                                       process.removeAfter != 0)) [[unlikely]] {
                 it = process.connections.erase(it);
                 continue;
             }
