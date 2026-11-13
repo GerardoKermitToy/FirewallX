@@ -61,8 +61,8 @@ inline constexpr PortItem pUpnp[] = { {2869, 2869} };
 inline constexpr PortItem pWsd[] = { {3702, 3702} };
 inline constexpr PortItem pWsdMetadata[] = { {5357, 5358} };
 inline constexpr PortItem pSmb[] = { {445, 445} };
-inline constexpr PortItem pNetbiosNs[] = { {137, 137} };
-inline constexpr PortItem pNetbiosDgm[] = { {138, 138} };
+inline constexpr PortItem pNetbios[] = { {137, 137}, {138, 138} };
+inline constexpr PortItem pKms[] = { {1688, 1688} };
 inline constexpr PortItem pPrint[] = { {515, 515}, {631, 631}, {9100, 9100} };
 inline constexpr PortItem pMdns[] = { {5353, 5353} };
 inline constexpr PortItem pLlmnr[] = { {5355, 5355} };
@@ -428,13 +428,13 @@ inline constexpr NetworkRule systemUdpLoopback[] = {
     {IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP, Proto::Udp, Dir::Out, pHttps, {}, aLoopback,
         {}, RuleAction::Allow, aLoopback}
 };
-// Блокируем NetBIOS с парными портами, без привязки к направлению и адресу
-// подсети: смена интерфейса не должна обходить блокировку.
+// Блокировка только по локальным портам, независимо от направления и адресов.
 inline constexpr NetworkRule netbiosBlock[] = {
-    {IDS_PRESET_RULE_NETBIOS_NS_BLOCK, Proto::Udp, Dir::Unknown,
-        pNetbiosNs, pNetbiosNs, {}, {}, RuleAction::Block},
-    {IDS_PRESET_RULE_NETBIOS_DGM_BLOCK, Proto::Udp, Dir::Unknown,
-        pNetbiosDgm, pNetbiosDgm, {}, {}, RuleAction::Block}
+    {IDS_PRESET_RULE_NETBIOS_LOCAL_BLOCK, Proto::Udp, Dir::Unknown,
+        {}, pNetbios, {}, {}, RuleAction::Block}
+};
+inline constexpr NetworkRule sppExtComObj[] = {
+    {IDS_PRESET_RULE_KMS_TCP, Proto::Tcp, Dir::Out, pKms}
 };
 
 inline constexpr std::wstring_view browsers =
@@ -489,6 +489,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_MSI_INSTALLER, L"msiexec.exe", httpOnly, Host::AppService, L"msiserver"},
     {IDS_PRESET_WEB_TOOLS, L"curl.exe;wget.exe;winget.exe;code.exe", web},
     {IDS_PRESET_PWSH_TCP_LOOPBACK, L"pwsh.exe", pwshTcpLoopback},
+    {IDS_PRESET_SPP_EXT_COM_OBJ, L"SppExtComObj.exe", sppExtComObj},
     {IDS_PRESET_VISUAL_STUDIO_HTTPS, L"devenv.exe", httpsOnly},
     {IDS_PRESET_VISUAL_STUDIO_WEB, L"devenv.exe", httpsAndHttp},
     {IDS_PRESET_WINDOWS_PACKAGE_MANAGER, L"windowspackagemanagerserver.exe", systemWeb},

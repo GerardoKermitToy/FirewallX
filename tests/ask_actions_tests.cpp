@@ -178,7 +178,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_SYSTEM_TCP_LOOPBACK; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_NETBIOS_LOCAL_BLOCK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -5611,53 +5611,140 @@ void TestSystemLoopbackPresets() {
     SetUiLang(previous);
 }
 
+void TestSppExtComObjPreset() {
+    const UiLang previous = CurrentUiLang();
+    SetUiLang(UiLang::English);
+    AskRequest request = Request(SystemDirFile(L"SppExtComObj.exe"), Proto::Tcp, 1688, L"10.3.0.20");
+    request.dir = Dir::Out;
+    request.key.local = Ip(L"192.168.0.116");
+    request.key.lport = 15162;
+    request.conditionFlags = 1;
+    request.interfaceName = std::make_shared<const std::wstring>(L"Captured Wi-Fi");
+    const auto choices = RulePresets::Suggest(request);
+    Check(choices.size() == 1, "SppExtComObj did not get its exact preset");
+    const auto& preset = ChoiceOf(choices, IDS_PRESET_SPP_EXT_COM_OBJ);
+    Check(preset.title == L"SppExtComObj.exe: TCP 1688" && preset.rules.size() == 1,
+          "SppExtComObj preset lost its title or single rule");
+    const Rule& rule = preset.rules.front();
+    Check(rule.scope == RuleScope::App && EqualNoCase(rule.appPath, request.appPath) &&
+          rule.appName == request.appName && rule.action == RuleAction::Allow &&
+          rule.proto == Proto::Tcp && rule.dir == Dir::Out &&
+          rule.conds == (CondProto | CondDirection | CondRemotePort) &&
+          rule.remotePorts.size() == 1 && rule.remotePorts.front().from == 1688 &&
+          rule.remotePorts.front().to == 1688 && rule.localPorts.empty() &&
+          rule.remoteAddrs.empty() && rule.localAddrs.empty() && rule.services.empty() &&
+          rule.interfaceName.empty() && rule.conditionFlags == 0 && !rule.autoName,
+          "SppExtComObj rule lost a condition or pinned a captured endpoint");
+    RuleStore store;
+    Check(RulePresets::Apply(store, request, preset.rules) == 1 && store.Count() == 1,
+          "cannot apply SppExtComObj preset");
+    const uint64_t version = store.version();
+    for (Dir dir : {Dir::Out, Dir::In}) {
+        AskRequest flow = request;
+        flow.dir = dir;
+        flow.key.remote = Ip(L"203.0.113.33");
+        flow.key.local = Ip(L"10.20.30.40");
+        flow.key.lport = 60000;
+        flow.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
+        flow.conditionFlags.reset();
+        const auto offered = RulePresets::Suggest(flow);
+        RuleAction action = RuleAction::Block;
+        Check(offered.size() == 1 && offered.front().titleId == IDS_PRESET_SPP_EXT_COM_OBJ &&
+              RuleStore::MatchesRule(rule, flow.ToQuery()) &&
+              store.MatchVerdict(flow.ToQuery(), action) && action == RuleAction::Allow,
+              "SppExtComObj preset pinned an endpoint or changed direction handling");
+    }
+    for (const auto& [proto, port] : {
+            std::pair{Proto::Udp, uint16_t{1688}}, std::pair{Proto::Tcp, uint16_t{1687}},
+            std::pair{Proto::Tcp, uint16_t{1689}}}) {
+        AskRequest wrong = request;
+        wrong.key.proto = proto;
+        wrong.key.rport = port;
+        Check(RulePresets::Suggest(wrong).empty() && !RuleStore::MatchesRule(rule, wrong.ToQuery()),
+              "SppExtComObj preset accepted another protocol or port");
+    }
+    AskRequest wrong = request;
+    wrong.appPath = L"C:\\Apps\\other.exe";
+    Check(RulePresets::Suggest(wrong).empty() && !RuleStore::MatchesRule(rule, wrong.ToQuery()),
+          "SppExtComObj preset accepted another executable");
+    wrong.appPath = L"D:\\Other\\SppExtComObj.exe";
+    Check(RulePresets::Suggest(wrong).size() == 1 && !RuleStore::MatchesRule(rule, wrong.ToQuery()),
+          "SppExtComObj preset lost filename matching or concrete path scope");
+    wrong = request;
+    wrong.ownerAmbiguous = true;
+    Check(RulePresets::Suggest(wrong).empty(), "ambiguous owner got SppExtComObj preset");
+    size_t count = 0;
+    const UiLangInfo* languages = UiLangs(count);
+    for (size_t i = 0; i < count; ++i) {
+        SetUiLang(languages[i].lang);
+        const auto localized = RulePresets::Suggest(request);
+        const auto& translated = ChoiceOf(localized, IDS_PRESET_SPP_EXT_COM_OBJ);
+        const std::wstring title = LoadStringRes(IDS_PRESET_SPP_EXT_COM_OBJ);
+        const std::wstring name = LoadStringRes(IDS_PRESET_RULE_KMS_TCP);
+        Check(title == L"SppExtComObj.exe: TCP 1688" && name == L"TCP 1688" &&
+              translated.title == title && translated.rules.size() == 1 &&
+              translated.rules.front().name == LoadStringResFmt(IDS_PRESET_RULE_NAME_FMT,
+                  title.c_str(), name.c_str()) &&
+              RulePresets::Apply(store, request, translated.rules) == 0 &&
+              store.Count() == 1 && store.version() == version,
+              "localized SppExtComObj preset was lost or duplicated");
+    }
+    SetUiLang(previous);
+}
+
 void TestNetbiosBlockPresets() {
-    AskRequest request = Request(KernelImagePath(), Proto::Udp, 137, L"192.168.219.255");
+    AskRequest request = Request(KernelImagePath(), Proto::Udp, 46560, L"192.168.0.1");
     request.pid = 4;
     request.process.reset();
     request.appName = L"SYSTEM";
-    request.key.local = Ip(L"192.168.219.144");
+    request.dir = Dir::In;
+    request.key.local = Ip(L"192.168.0.116");
     request.key.lport = 137;
+    request.conditionFlags = 1;
+    request.interfaceName = std::make_shared<const std::wstring>(L"Беспроводная сеть 6");
     const size_t reads = serviceReads;
     const auto choices = RulePresets::Suggest(request);
     Check(choices.size() == 1 && serviceReads == reads,
           "System NetBIOS should offer one profile without a process handle or SCM lookup");
     const auto& preset = ChoiceOf(choices, IDS_PRESET_NETBIOS_BLOCK);
-    Check(preset.rules.size() == 2, "NetBIOS block profile must contain two rules");
-    for (size_t i = 0; i < preset.rules.size(); ++i) {
-        const Rule& rule = preset.rules[i];
-        const uint16_t port = static_cast<uint16_t>(137 + i);
-        Check(rule.scope == RuleScope::App && EqualNoCase(rule.appPath, request.appPath) &&
-              rule.appName == request.appName && !rule.autoName &&
-              rule.action == RuleAction::Block && rule.proto == Proto::Udp && rule.dir == Dir::Unknown &&
-              rule.conds == (CondProto | CondRemotePort | CondLocalPort) &&
-              rule.remotePorts.size() == 1 && rule.remotePorts.front().from == port &&
-              rule.remotePorts.front().to == port && rule.localPorts.size() == 1 &&
-              rule.localPorts.front().from == port && rule.localPorts.front().to == port &&
-              rule.remoteAddrs.empty() && rule.localAddrs.empty() && rule.services.empty() &&
-              rule.name.find(preset.title) != std::wstring::npos,
-              "NetBIOS block rule lost its action, exact application, paired ports or directionless shape");
-    }
+    Check(preset.rules.size() == 1, "NetBIOS block profile must contain one combined rule");
+    const Rule& rule = preset.rules.front();
+    Check(rule.scope == RuleScope::App && EqualNoCase(rule.appPath, request.appPath) &&
+          rule.appName == request.appName && !rule.autoName &&
+          rule.action == RuleAction::Block && rule.proto == Proto::Udp && rule.dir == Dir::Unknown &&
+          rule.conds == (CondProto | CondLocalPort) && rule.remotePorts.empty() &&
+          rule.localPorts.size() == 2 && rule.localPorts[0].from == 137 && rule.localPorts[0].to == 137 &&
+          rule.localPorts[1].from == 138 && rule.localPorts[1].to == 138 &&
+          rule.remoteAddrs.empty() && rule.localAddrs.empty() && rule.services.empty() &&
+          rule.interfaceName.empty() && rule.conditionFlags == 0 &&
+          rule.name.find(preset.title) != std::wstring::npos,
+          "NetBIOS block rule lost its action, exact application or combined local ports");
     RuleStore store;
-    Check(RulePresets::Apply(store, request, preset.rules) == 2 && store.Count() == 2,
+    Check(RulePresets::Apply(store, request, preset.rules) == 1 && store.Count() == 1,
           "cannot apply NetBIOS block profile");
     const uint64_t version = store.version();
-    for (auto [local, remote, port] : {
-        std::tuple{L"192.168.219.144", L"192.168.219.255", uint16_t{137}},
-        std::tuple{L"10.180.0.4", L"10.180.0.255", uint16_t{138}},
-        std::tuple{L"192.0.2.10", L"255.255.255.255", uint16_t{137}},
-        std::tuple{L"192.0.2.20", L"198.51.100.20", uint16_t{138}}
+    for (auto [local, remote] : {
+        std::pair{L"192.168.219.144", L"192.168.219.255"},
+        std::pair{L"10.180.0.4", L"10.180.0.255"},
+        std::pair{L"192.0.2.10", L"255.255.255.255"},
+        std::pair{L"192.0.2.20", L"198.51.100.20"}
     }) {
-        AskRequest connection = request;
-        connection.key = MakeFlowKey(Proto::Udp, Ip(local), Ip(remote), port, port);
-        const auto suggested = RulePresets::Suggest(connection);
-        Check(suggested.size() == 1, "NetBIOS block profile pinned a captured endpoint");
-        ChoiceOf(suggested, IDS_PRESET_NETBIOS_BLOCK);
-        const MatchQuery query = MakeMatchQuery(connection.appPath, connection.pid,
-            connection.key, connection.dir);
-        RuleAction action = RuleAction::Allow;
-        Check(store.MatchVerdict(query, action) && action == RuleAction::Block,
-              "applied NetBIOS preset did not block the matching connection");
+        for (uint16_t localPort : {uint16_t{137}, uint16_t{138}}) {
+            for (uint16_t remotePort : {uint16_t{1}, uint16_t{137}, uint16_t{138},
+                                        uint16_t{46560}, uint16_t{65535}}) {
+                for (Dir direction : {Dir::In, Dir::Out}) {
+                    AskRequest connection = request;
+                    connection.key = MakeFlowKey(Proto::Udp, Ip(local), Ip(remote), localPort, remotePort);
+                    connection.dir = direction;
+                    const auto suggested = RulePresets::Suggest(connection);
+                    Check(suggested.size() == 1, "NetBIOS block profile pinned a captured endpoint");
+                    ChoiceOf(suggested, IDS_PRESET_NETBIOS_BLOCK);
+                    RuleAction action = RuleAction::Allow;
+                    Check(store.MatchVerdict(connection.ToQuery(), action) && action == RuleAction::Block,
+                          "applied NetBIOS preset did not block the matching connection");
+                }
+            }
+        }
     }
     const auto reject = [&](const AskRequest& unrelated) {
         Check(RulePresets::Suggest(unrelated).empty(), "unrelated connection got a NetBIOS block profile");
@@ -5667,22 +5754,12 @@ void TestNetbiosBlockPresets() {
     };
     for (uint16_t port : {uint16_t{137}, uint16_t{138}}) {
         AskRequest unrelated = request;
-        unrelated.key.rport = unrelated.key.lport = port;
-        unrelated.dir = Dir::In;
-        const auto incoming = RulePresets::Suggest(unrelated);
-        Check(incoming.size() == 1 &&
-              RuleStore::MatchesRule(preset.rules[port == 137 ? 0 : 1], unrelated.ToQuery()),
-              "directionless NetBIOS block profile missed incoming traffic");
-        RuleAction action = RuleAction::Allow;
-        Check(store.MatchVerdict(unrelated.ToQuery(), action) && action == RuleAction::Block,
-              "directionless NetBIOS rule did not block incoming traffic");
-        unrelated.dir = Dir::Out;
+        unrelated.key.rport = 46560;
+        unrelated.key.lport = port;
         unrelated.key.proto = Proto::Tcp;
         reject(unrelated);
         unrelated.key.proto = Proto::Udp;
         unrelated.key.lport = 41000;
-        reject(unrelated);
-        unrelated.key.lport = port == 137 ? 138 : 137;
         reject(unrelated);
     }
     for (uint16_t port : {uint16_t{53}, uint16_t{136}, uint16_t{139}, uint16_t{445}, uint16_t{5353}}) {
@@ -5709,16 +5786,27 @@ void TestNetbiosBlockPresets() {
     Check(RulePresets::Apply(store, request, preset.rules) == 0 && store.version() == version,
           "repeated NetBIOS block preset created duplicates");
     const UiLang previous = CurrentUiLang();
-    SetUiLang(UiLang::Russian);
-    const auto translated = RulePresets::Suggest(request);
-    Check(RulePresets::Apply(store, request, ChoiceOf(translated, IDS_PRESET_NETBIOS_BLOCK).rules) == 0 &&
-          store.version() == version, "language change duplicated NetBIOS block rules");
+    size_t count = 0;
+    const UiLangInfo* languages = UiLangs(count);
+    for (size_t i = 0; i < count; ++i) {
+        SetUiLang(languages[i].lang);
+        const auto translated = RulePresets::Suggest(request);
+        const auto& localized = ChoiceOf(translated, IDS_PRESET_NETBIOS_BLOCK);
+        const std::wstring title = LoadStringRes(IDS_PRESET_NETBIOS_BLOCK);
+        const std::wstring name = LoadStringRes(IDS_PRESET_RULE_NETBIOS_LOCAL_BLOCK);
+        Check(name == L"NetBIOS-NS / NetBIOS-DGM, UDP 137, 138" &&
+              localized.rules.size() == 1 &&
+              localized.rules.front().name == LoadStringResFmt(IDS_PRESET_RULE_NAME_FMT,
+                  title.c_str(), name.c_str()) &&
+              RulePresets::Apply(store, request, localized.rules) == 0 && store.version() == version,
+              "language change lost or duplicated the NetBIOS block rule");
+    }
     SetUiLang(previous);
     Rule disabled = store.ForApp(request.appPath).front();
     disabled.enabled = false;
     disabled.name = L"Custom NetBIOS block";
     Check(store.Update(disabled), "cannot disable NetBIOS rule");
-    Check(RulePresets::Apply(store, request, preset.rules) == 1 && store.Count() == 2,
+    Check(RulePresets::Apply(store, request, preset.rules) == 1 && store.Count() == 1,
           "disabled NetBIOS block rule was duplicated instead of re-enabled");
     Rule restored;
     Check(store.Get(disabled.id, restored) && restored.enabled &&
@@ -5728,7 +5816,7 @@ void TestNetbiosBlockPresets() {
     Rule allow = preset.rules.front();
     allow.action = RuleAction::Allow;
     const uint64_t allowId = opposite.Add(allow);
-    Check(RulePresets::Apply(opposite, request, preset.rules) == 2 && opposite.Count() == 3 &&
+    Check(RulePresets::Apply(opposite, request, preset.rules) == 1 && opposite.Count() == 2 &&
           opposite.Get(allowId, restored) && restored.action == RuleAction::Allow,
           "blocking preset deduplication confused opposite actions");
 }
@@ -6078,7 +6166,7 @@ void TestAskWindowActions() {
               "NetBIOS block preset was not selected without applying a decision");
         SendMessageW(window.hwnd(), WM_COMMAND, MAKEWPARAM(703, BN_CLICKED), 0);
         Check(calls == before + 1 && decision.action == AskAction::Preset &&
-              decision.presetRules.size() == 2 &&
+              decision.presetRules.size() == 1 &&
               std::all_of(decision.presetRules.begin(), decision.presetRules.end(),
                   [](const Rule& rule) { return rule.action == RuleAction::Block; }),
               "NetBIOS default preset lost its blocking action in the ask window");
@@ -8103,6 +8191,8 @@ int main(int argc, char** argv) {
             TestDhcpClientPortsPreset(L"SharedAccess");
             TestExactTcpLoopbackPresets();
             TestSystemLoopbackPresets();
+            TestNetbiosBlockPresets();
+            TestSppExtComObjPreset();
             std::cout << "Captured connection preset tests passed\n";
             WSACleanup();
             return 0;
@@ -8192,6 +8282,7 @@ int main(int argc, char** argv) {
         TestExactTcpLoopbackPresets();
         TestSystemLoopbackPresets();
         TestNetbiosBlockPresets();
+        TestSppExtComObjPreset();
         TestServiceSuggestions();
         TestDuplicatesAndPersistence();
         TestServicePolicies();

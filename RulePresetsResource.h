@@ -202,6 +202,9 @@
 #define IDS_PRESET_GEOLOCATION            2293
 #define IDS_PRESET_PWSH_TCP_LOOPBACK      2294
 #define IDS_PRESET_SYSTEM_TCP_LOOPBACK    2295
+#define IDS_PRESET_SPP_EXT_COM_OBJ        2296
+#define IDS_PRESET_RULE_KMS_TCP           2297
+#define IDS_PRESET_RULE_NETBIOS_LOCAL_BLOCK 2298
 
 /* Группы интерфейсов; все переводы также в RulePresets.rc. */
 #define IDS_INTERFACE_UNKNOWN             2110

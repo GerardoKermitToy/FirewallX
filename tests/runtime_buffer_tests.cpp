@@ -271,7 +271,7 @@ void TestStringCacheStorage() {
 
     // Два потока начинают с пустого кеша: один с малого ID, другой с большого.
     // Проверяются оба порядка, рост прямого индекса и освобождение при выходе.
-    for (const UINT firstId : { UINT(IDS_APPNAME), UINT(IDS_PRESET_SYSTEM_TCP_LOOPBACK) }) {
+    for (const UINT firstId : { UINT(IDS_APPNAME), UINT(IDS_PRESET_RULE_NETBIOS_LOCAL_BLOCK) }) {
         std::exception_ptr failure;
         const size_t baseline = liveBytes.load();
         std::thread worker([&] {
@@ -285,7 +285,7 @@ void TestStringCacheStorage() {
                 Check(count < 32, "sparse cache constructed strings for unrequested IDs");
                 Check(bytes < (static_cast<size_t>(firstId) + 1) * sizeof(void*) + 8192,
                       "sparse cache retained string objects between requested IDs");
-                if (firstId == IDS_PRESET_SYSTEM_TCP_LOOPBACK) {
+                if (firstId == IDS_PRESET_RULE_NETBIOS_LOCAL_BLOCK) {
                     sparseBytes = bytes;
                     sparseAllocations = count;
                 }
@@ -299,7 +299,7 @@ void TestStringCacheStorage() {
                     Check(first == firstValue && &StringResRef(firstId) == firstAddress,
                           "cache growth invalidated a resource reference");
                 }
-                for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_SYSTEM_TCP_LOOPBACK; ++id) {
+                for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_NETBIOS_LOCAL_BLOCK; ++id) {
                     Check(!StringResRef(id).empty(), "cache growth lost a new preset resource");
                     Check(first == firstValue && &StringResRef(firstId) == firstAddress,
                           "new preset resources invalidated a cached reference");
@@ -340,7 +340,7 @@ void TestStringCacheStorage() {
     }
     Check(mainText == mainValue && &StringResRef(IDS_MENU_VIEW_TITLE) == &mainText,
           "worker language changes invalidated another thread's cache");
-    std::cout << "sparse resource cache: first ID=" << IDS_PRESET_SYSTEM_TCP_LOOPBACK
+    std::cout << "sparse resource cache: first ID=" << IDS_PRESET_RULE_NETBIOS_LOCAL_BLOCK
               << ", allocations=" << sparseAllocations << ", bytes=" << sparseBytes << '\n';
 }
 
