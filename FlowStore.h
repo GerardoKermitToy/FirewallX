@@ -186,6 +186,8 @@ public:
         bool endReceived = false;
         bool systemTrafficAuthoritative = false;
         bool currentSystemCountersRead = false;
+        // Только фильтр UI: живое поколение и накопительные счётчики сохраняются.
+        bool idleHidden = false;
 
         // Номер последнего системного снимка своей категории. Он заменяет
         // предварительный полный проход, который каждую секунду сбрасывал
@@ -422,6 +424,8 @@ public:
     // Секундный снимок Monitor: одновременно выполняет уборку, выбирает источник
     // счётчиков и отбрасывает пассивные строки до копирования. showPassive меняет
     // только состав снимка, а не число объектов в основном хранилище.
+    // Подтверждённые UDP с известными PID и направлением после двух минут
+    // простоя скрываются независимо от showPassive до следующего события.
     // Без includeConnections остаётся сводка процессов для трея. Уборка и сброс
     // интервалов продолжаются, но строки соединений и скорости не вычисляются.
     void TakeDisplay(DisplayView& out,
@@ -529,6 +533,9 @@ private:
     void PrepareProcessesLocked(const std::vector<DeadProcessProbe>& dead,
                                 ULONGLONG now);
     void ResetPeriodsLocked();
+    void TakeDisplayLocked(DisplayView& out, ULONGLONG now,
+                           ULONGLONG inactiveMs, bool showPassive,
+                           bool includeConnections);
 
     bool ExpireConnectionLocked(ConnectionRecord& connection,
                                 ULONGLONG now, ULONGLONG inactiveMs,
@@ -556,4 +563,6 @@ private:
     bool bandwidthPollManaged_ = false;
     ULONGLONG lastTakeAt_ = 0;
     size_t removedSinceTake_ = 0;
+    // Число скрытых UDP последнего UI-снимка: отладка читает его без обхода строк.
+    size_t idleHiddenUdp_ = 0;
 };

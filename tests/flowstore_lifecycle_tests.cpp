@@ -2818,6 +2818,153 @@ void TestKnownDirectionUdpKeepsSocketProtection() {
     }
 }
 
+void TestIdleDirectedUdpVisibility() {
+    FlowStore& store = FlowStore::Instance();
+    for (const FlowKey& key : { Udp4(53910), Udp6(53911) }) {
+        for (Dir direction : { Dir::In, Dir::Out }) {
+            for (DWORD pid : { DWORD{4}, GetCurrentProcessId() }) {
+                for (int socketKind = 0; socketKind < 3; ++socketKind) {
+                    store.Reset();
+                    OpenDriverFlow(key, pid, direction);
+                    ReportPortmasterUdp(key, 10, 5);
+                    FlowStore::SystemSnapshot snapshot;
+                    IpAddr local = key.local;
+                    if (socketKind) {
+                        local = IpAddr{};
+                        local.family = socketKind == 2 ? AF_INET6 : key.local.family;
+                    }
+                    if (local.family == AF_INET) {
+                        snapshot.udpV4Valid = true;
+                        snapshot.udpV4.push_back({ local, key.lport, pid });
+                    } else {
+                        snapshot.udpV6Valid = true;
+                        snapshot.udpV6.push_back({ local, key.lport, pid });
+                    }
+                    store.ReplaceSystemSnapshot(snapshot);
+                    FlowStore::DisplayView display;
+                    store.TakeDisplay(display);
+                    const auto* shown = DisplayConnection(DisplayProcess(display, pid), key);
+                    Check(shown && shown->sent == 10 && shown->recv == 5,
+                          "directed UDP flow is missing before idle filtering");
+                    const uint64_t generation = shown->flowGeneration;
+                    const ULONGLONG activity = shown->lastActivity;
+
+                    StorageTestAccess::TakeDisplayAt(
+                        display, activity + FlowStore::kInactiveMs);
+                    Check(DisplayConnection(DisplayProcess(display, pid), key),
+                          "directed UDP was hidden at the timeout boundary");
+                    for (bool showPassive : { false, true }) {
+                        for (bool includeConnections : { false, true }) {
+                            StorageTestAccess::TakeDisplayAt(display,
+                                activity + FlowStore::kInactiveMs + 1,
+                                showPassive, includeConnections);
+                            Check(display.flowCount == 1 && display.processes.empty() &&
+                                  display.connections.empty() && !display.hiddenCount &&
+                                  !display.removedConnections,
+                                  "idle UDP was copied, deleted or treated as passive");
+                            DebugCounters::Snapshot debug;
+                            store.ReadDebugCounters(debug);
+                            Check(debug.values[DebugCounters::FlowHiddenIdleUdp] == 1 &&
+                                  debug.values[DebugCounters::FlowConnections] == 1,
+                                  "hidden UDP diagnostics lost the full live record");
+                        }
+                    }
+
+                    // Повторный системный снимок не является событием обмена.
+                    store.ReplaceSystemSnapshot(snapshot);
+                    StorageTestAccess::TakeDisplayAt(display,
+                        activity + 3 * FlowStore::kInactiveMs);
+                    Check(display.flowCount == 1 && display.connections.empty(),
+                          "open socket refreshed idle UDP activity");
+                    const auto full = Take();
+                    const auto* kept = Connection(Process(full, pid), key);
+                    Check(kept && kept->generation == generation &&
+                          !kept->removeAfter && !kept->retired && !kept->endReceived &&
+                          kept->driver && kept->driver->countersActive &&
+                          kept->driver->sent == 10 && kept->driver->recv == 5 &&
+                          !kept->driver->periodSent && !kept->driver->periodRecv,
+                          "idle filtering changed UDP lifetime or cumulative counters");
+
+                    // Каждый источник событий возвращает прежнюю запись.
+                    for (int eventKind = 0; eventKind < 3; ++eventKind) {
+                        const uint64_t expectedSent = 13 + 3 * eventKind;
+                        ReportPortmasterUdp(key, 3, 0);
+                        store.TakeDisplay(display);
+                        shown = DisplayConnection(DisplayProcess(display, pid), key);
+                        Check(shown && shown->flowGeneration == generation &&
+                              shown->sent == expectedSent && shown->recv == 5,
+                              "UDP bandwidth did not revive the accumulated counters");
+                        StorageTestAccess::TakeDisplayAt(display,
+                            shown->lastActivity + FlowStore::kInactiveMs + 1);
+                        Check(display.connections.empty(), "UDP did not become hidden again");
+                        FlowStore::ConnEvent event = Event(pid);
+                        event.dir = direction;
+                        if (eventKind == 0) store.NoteConnection(key, event);
+                        else if (eventKind == 1) store.NoteAllowed(key, event, generation);
+                        else store.CloseFlow(key, pid, direction, generation);
+                        store.TakeDisplay(display);
+                        shown = DisplayConnection(DisplayProcess(display, pid), key);
+                        Check(shown && shown->flowGeneration == generation &&
+                              shown->sent == expectedSent && shown->recv == 5 &&
+                              (shown->removeAfter != 0) == (eventKind == 2),
+                              "UDP event did not restore the same full record");
+                        DebugCounters::Snapshot debug;
+                        store.ReadDebugCounters(debug);
+                        Check(debug.values[DebugCounters::FlowHiddenIdleUdp] == 0,
+                              "revived UDP remained in the hidden diagnostic count");
+                    }
+                }
+            }
+        }
+    }
+}
+
+void TestIdleUdpVisibilityEligibility() {
+    FlowStore& store = FlowStore::Instance();
+    for (const FlowKey& key : { Udp4(53912), Udp6(53913), Tcp4(46912), Tcp6(46913) }) {
+        for (int variant = 0; variant < 5; ++variant) {
+            store.Reset();
+            const DWORD pid = variant == 0 ? 0 : GetCurrentProcessId();
+            const Dir direction = variant == 1 ? Dir::Unknown : Dir::Out;
+            OpenDriverFlow(key, pid, direction);
+            store.AddBandwidth(key, 10, 5);
+            FlowStore::SystemSnapshot snapshot;
+            const DWORD socketPid = variant == 2 && key.proto == Proto::Udp
+                ? DWORD{4} : pid;
+            if (key.proto == Proto::Tcp) {
+                auto& rows = key.local.family == AF_INET ? snapshot.tcpV4 : snapshot.tcpV6;
+                rows.push_back({ key, socketPid, MIB_TCP_STATE_ESTAB });
+                snapshot.tcpV4Valid = key.local.family == AF_INET;
+                snapshot.tcpV6Valid = key.local.family == AF_INET6;
+            } else if (variant != 3) {
+                auto& rows = key.local.family == AF_INET ? snapshot.udpV4 : snapshot.udpV6;
+                rows.push_back({ key.local, key.lport, socketPid });
+                snapshot.udpV4Valid = key.local.family == AF_INET;
+                snapshot.udpV6Valid = key.local.family == AF_INET6;
+            }
+            store.ReplaceSystemSnapshot(snapshot);
+            FlowStore::DisplayView display;
+            store.TakeDisplay(display);
+            const auto view = Take();
+            const auto& process = Process(view, pid);
+            const auto* connection = Connection(process, key);
+            Check(connection != nullptr, "eligibility test lost its initial connection");
+            if (variant == 4) store.NoteBlocked(key, Event(pid), connection->generation);
+            StorageTestAccess::TakeDisplayAt(display, variant == 4 ? GetTickCount64() :
+                connection->lastActivity + FlowStore::kInactiveMs + 1);
+            DebugCounters::Snapshot debug;
+            store.ReadDebugCounters(debug);
+            Check(debug.values[DebugCounters::FlowHiddenIdleUdp] == 0,
+                  "idle filter hid TCP, unknown owner/direction, unconfirmed or finished UDP");
+        }
+    }
+    store.Reset();
+    DebugCounters::Snapshot debug;
+    store.ReadDebugCounters(debug);
+    Check(debug.values[DebugCounters::FlowHiddenIdleUdp] == 0,
+          "reset retained the hidden UDP count");
+}
+
 void TestUndirectedPortmasterTcpExpiry() {
     FlowStore& store = FlowStore::Instance();
     constexpr ULONGLONG noExpiry = static_cast<ULONGLONG>(-1);
@@ -3032,6 +3179,8 @@ int main() {
     TestInactiveUndirectedUdpWithOpenSocket();
     TestUndirectedUdpKeepsFinishedGrace();
     TestKnownDirectionUdpKeepsSocketProtection();
+    TestIdleDirectedUdpVisibility();
+    TestIdleUdpVisibilityEligibility();
     TestUndirectedPortmasterTcpExpiry();
     TestUndirectedPortmasterTcpRevival();
     TestUndirectedPortmasterTcpEndRemainsFinal();

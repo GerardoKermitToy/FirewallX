@@ -1,6 +1,5 @@
 #include "DebugWindow.h"
 #include "resource.h"
-#include "StringRes.h"
 #include "UiKit.h"
 
 #include <commctrl.h>
@@ -20,7 +19,7 @@ constexpr UINT_PTR kDriverMemoryTimer = 2;
 constexpr int kListId = 100;
 constexpr int kDriverMemoryRows = 2;
 
-// Технические подписи окна намеренно всегда английские.
+// Все строки окна намеренно английские и хранятся здесь, без ресурсов перевода.
 constexpr const wchar_t* kLabels[] = {
     L"FlowStore / processes",
     L"FlowStore / connections",
@@ -54,15 +53,16 @@ constexpr const wchar_t* kLabels[] = {
     L"UI / rule text cache",
     L"UI / expansion overrides",
     L"AskQueue / queued requests",
-    nullptr, // Локализованная строка соединений FirewallXNdisFilter.
+    L"FlowStore / FirewallXNdisFilter: connections",
     L"RuleStore / inheritance hash buckets",
     L"RuleStore / inheritance settings",
     L"RuleStore / rule name references",
-    nullptr, // Локализованная строка кандидатов правил интерфейсов.
+    L"RuleStore / interface rule candidates",
     L"ProcessTable / current entries",
     L"ProcessTable / retired entries",
     L"ProcessTable / late lineage index",
     L"ProcessTable / interned paths",
+    L"FlowStore / hidden idle UDP records",
 };
 static_assert(std::size(kLabels) == DebugCounters::Count);
 
@@ -225,10 +225,7 @@ bool DebugWindow::Build(HINSTANCE inst) {
         LVITEMW item{};
         item.mask = LVIF_TEXT;
         item.iItem = static_cast<int>(i) + kDriverMemoryRows;
-        const UINT labelId = i == DebugCounters::FlowNdisConnections
-            ? IDS_DEBUG_NDIS_CONNECTIONS : IDS_DEBUG_INTERFACE_CANDIDATES;
-        std::wstring label = kLabels[i] ? kLabels[i] : LoadStringRes(labelId);
-        item.pszText = label.data();
+        item.pszText = const_cast<wchar_t*>(kLabels[i]);
         if (ListView_InsertItem(list_, &item) < 0) return false;
         ListView_SetItemText(list_, item.iItem, 1, busy_.data());
     }

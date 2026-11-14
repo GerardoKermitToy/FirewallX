@@ -7,6 +7,14 @@ struct StorageTestAccess {
         std::lock_guard<std::mutex> lock(store.mtx_);
         store.ExpireLocked(now, FlowStore::kInactiveMs);
     }
+    static void TakeDisplayAt(FlowStore::DisplayView& out, ULONGLONG now,
+                              bool showPassive = true,
+                              bool includeConnections = true) {
+        FlowStore& store = FlowStore::Instance();
+        std::lock_guard<std::mutex> lock(store.mtx_);
+        store.TakeDisplayLocked(out, now, FlowStore::kInactiveMs,
+                                showPassive, includeConnections);
+    }
     static void SetLastTakeAt(ULONGLONG tick) {
         FlowStore& store = FlowStore::Instance();
         std::lock_guard<std::mutex> lock(store.mtx_);

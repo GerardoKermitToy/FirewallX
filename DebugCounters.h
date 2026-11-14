@@ -21,6 +21,7 @@ enum Id : size_t {
     RuleInheritanceBuckets, RuleInheritanceSettings, RuleNameReferences,
     RuleInterfaceCandidates,
     ProcessEntries, ProcessRetired, ProcessLateLineages, ProcessPaths,
+    FlowHiddenIdleUdp,
     Count
 };
 

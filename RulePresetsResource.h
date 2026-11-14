@@ -236,8 +236,6 @@
 #define IDS_INTERFACE_COLUMN              2115
 #define IDS_INTERFACE_STATS_FMT           2116
 #define IDS_INTERFACE_DELETE_FMT          2117
-#define IDS_DEBUG_INTERFACE_CANDIDATES     2118
-#define IDS_DEBUG_NDIS_CONNECTIONS         2119
 
 /* Фильтр интерфейса для остальных групп; переводы в RulePresets.rc. */
 #define IDS_COND_INTERFACE                   2120

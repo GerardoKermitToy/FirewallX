@@ -86,19 +86,16 @@ bool IsPassiveDisplayConnection(
         case MIB_TCP_STATE_TIME_WAIT:
             return !hasActivity && !fresh;
         default:
-            return !connection.key.rport && connection.key.remote.isAny() &&
-                   !hasActivity && !fresh;
+            return !hasActivity && !fresh && !connection.key.rport &&
+                   connection.key.remote.isAny();
         }
     }
 
     if (connection.key.proto == Proto::Udp) {
         const bool fresh = lastActivity &&
                            now - lastActivity <= kUdpFreshMs;
-        const bool concrete = connection.key.rport != 0 ||
-                              !connection.key.remote.isAny();
-        if (concrete && (fresh || hasActivity)) return false;
-        if (!concrete && fresh) return false;
-        return true;
+        return !fresh && (!hasActivity ||
+            (!connection.key.rport && connection.key.remote.isAny()));
     }
 
     return !lastActivity || now - lastActivity > kOtherFreshMs;
@@ -125,14 +122,14 @@ DisplayTraffic DisplayTrafficOf(
     ULONGLONG lastTakeAt, ULONGLONG now) {
     DisplayTraffic traffic;
     const FlowStore::DriverDetails* details = connection.driver.get();
-    if (!connection.retired && connection.systemTrafficAuthoritative) {
+    if (connection.systemTrafficAuthoritative && !connection.retired) {
         traffic.sent = connection.lastSystemSent;
         traffic.recv = connection.lastSystemRecv;
         traffic.periodSent = connection.systemPeriodSent;
         traffic.periodRecv = connection.systemPeriodRecv;
         traffic.period = connection.systemPeriod;
         traffic.bytesFrom = BytesEstats;
-    } else if (!connection.retired && details && details->countersActive) {
+    } else if (details && details->countersActive && !connection.retired) {
         traffic.sent = details->sent;
         traffic.recv = details->recv;
         traffic.periodSent = details->periodSent;
@@ -144,8 +141,8 @@ DisplayTraffic DisplayTrafficOf(
                            details->lastBandwidthAt))
             ? details->period : FlowStore::TrafficPeriod{ lastTakeAt, now };
         traffic.bytesFrom = BytesDriver;
-    } else if (!ProtoInOsTables(connection.key.proto) && details &&
-               details->events) {
+    } else if (details && details->events &&
+               !ProtoInOsTables(connection.key.proto)) {
         traffic.sent = details->sent;
         traffic.recv = details->recv;
         traffic.periodSent = details->periodSent;
@@ -184,6 +181,7 @@ void FlowStore::ReadDebugCounters(DebugCounters::Snapshot& out) const {
     }
     v[DebugCounters::FlowConnections] = connections;
     v[DebugCounters::FlowNdisConnections] = ndisConnections_.size();
+    v[DebugCounters::FlowHiddenIdleUdp] = idleHiddenUdp_;
     v[DebugCounters::OwnerTcpV4] = ownerIndexes_.tcpV4.size();
     v[DebugCounters::OwnerTcpV6] = ownerIndexes_.tcpV6.size();
     v[DebugCounters::OwnerUdpV4] = ownerIndexes_.udpV4.size();
@@ -406,8 +404,8 @@ FlowStore::ConnectionRecord* FlowStore::VerdictConnectionLocked(
                 connection = CurrentConnectionLocked(key, owner->second);
         }
     }
-    return connection && connection->key == key &&
-           !connection->endReceived && !connection->retired
+    return connection && !connection->endReceived && !connection->retired &&
+           connection->key == key
         ? connection : nullptr;
 }
 
@@ -425,7 +423,7 @@ void FlowStore::FreezeConnectionLocked(ConnectionRecord& connection) {
     }
 
     if (current && (current->countersActive ||
-        (!ProtoInOsTables(connection.key.proto) && current->events))) {
+        (current->events && !ProtoInOsTables(connection.key.proto)))) {
         DriverDetails& details = EnsureDriverDetails(connection);
         details.frozenSent = details.sent;
         details.frozenRecv = details.recv;
@@ -722,7 +720,7 @@ FlowStore::ConnectionRecord* FlowStore::NoteConnectionLocked(
     }
     ++details.events;
 
-    if (!ProtoInOsTables(key.proto) && event.bytes) {
+    if (event.bytes && !ProtoInOsTables(key.proto)) {
         details.countersActive = true;
         if (inbound) {
             details.recv += event.bytes;
@@ -946,7 +944,7 @@ void FlowStore::AddBandwidthLocked(const FlowKey& key, uint64_t sent,
                                    uint64_t recv, ULONGLONG now,
                                    const TrafficPeriod* period) {
     ConnectionOwnerIndexEntry& owner = OwnerLocked(key, now);
-    if (key.proto == Proto::Udp && !owner.pid && !owner.ownerAmbiguous) {
+    if (!owner.pid && key.proto == Proto::Udp && !owner.ownerAmbiguous) {
         DWORD endpointPid = 0;
         bool endpointAmbiguous = false;
         if (ResolveSocketLocked(Proto::Udp, key.local, key.lport,
@@ -1096,9 +1094,9 @@ bool FlowStore::MarkConnectionForRemovalLocked(const FlowKey& key, DWORD pid,
     }
 
     const auto consider = [&](ConnectionRecord& connection) {
-        if (!(connection.key == key)) return;
         if (generation && connection.generation != generation) return;
         if (pid && connection.pid && connection.pid != pid) return;
+        if (!(connection.key == key)) return;
         if (!chosen || connection.generation > chosen->generation)
             chosen = &connection;
     };
@@ -1171,9 +1169,9 @@ void FlowStore::ClearCounters(const FlowKey& key, uint64_t generation) {
     for (auto& process : processes_) {
         for (auto& item : process.second.connections) {
             ConnectionRecord& connection = item.second;
-            if (!(connection.key == key) ||
+            if (!connection.driver ||
                 (generation && connection.generation != generation) ||
-                !connection.driver)
+                !(connection.key == key))
                 continue;
             DriverDetails& details = EnsureDriverDetails(connection);
             details.sent = details.recv = 0;
@@ -1207,10 +1205,10 @@ void FlowStore::ApplyTcpSnapshotLocked(
                          owner.lastSystemRevision + 1 < revision;
 
         const DWORD previousPid = owner.pid;
-        const bool changedOwner = row.pid && previousPid &&
-                                  row.pid != previousPid;
+        const bool changedOwner = row.pid != previousPid &&
+                                  row.pid && previousPid;
         DWORD targetPid = row.pid;
-        if (!duplicate && owner.ownerAmbiguous && row.pid) {
+        if (owner.ownerAmbiguous && !duplicate && row.pid) {
             owner.ownerAmbiguous = false;
             if (!owner.ended)
                 MoveCurrentFlowLocked(row.key, owner, row.pid);
@@ -1225,7 +1223,7 @@ void FlowStore::ApplyTcpSnapshotLocked(
             owner.pid = 0;
             owner.ownerAmbiguous = true;
             targetPid = 0;
-        } else if (!owner.ownerAmbiguous && targetPid != owner.pid) {
+        } else if (targetPid != owner.pid && !owner.ownerAmbiguous) {
             if (!owner.ended)
                 MoveCurrentFlowLocked(row.key, owner, targetPid);
             else if (targetPid)
@@ -1268,11 +1266,11 @@ void FlowStore::ApplyTcpSnapshotLocked(
                 const ULONGLONG countersAt = row.countersAt
                     ? row.countersAt : now;
                 const bool hasTraffic = row.sent != 0 || row.recv != 0;
-                const bool monotonic = row.sent >= connection->lastSystemSent &&
-                                       row.recv >= connection->lastSystemRecv;
-                if (connection->systemTrafficAuthoritative && monotonic &&
+                if (connection->systemTrafficAuthoritative &&
                     connection->lastSystemReadAt &&
-                    countersAt > connection->lastSystemReadAt) {
+                    countersAt > connection->lastSystemReadAt &&
+                    row.sent >= connection->lastSystemSent &&
+                    row.recv >= connection->lastSystemRecv) {
                     connection->systemPeriodSent +=
                         row.sent - connection->lastSystemSent;
                     connection->systemPeriodRecv +=
@@ -1325,7 +1323,7 @@ void FlowStore::ApplyUdpSnapshotLocked(
             // Точный PID on_connection_* сильнее UDP-таблицы, в которой удалённой
             // стороны нет. Однозначный снимок подтверждает только неизвестного
             // либо неоднозначного владельца, не заменяя уже известный PID.
-            if (!owner.ended && (!owner.pid || owner.ownerAmbiguous) &&
+            if ((!owner.pid || owner.ownerAmbiguous) && !owner.ended &&
                 !socketAmbiguous && socketPid) {
                 owner.ownerAmbiguous = false;
                 MoveCurrentFlowLocked(item.first, owner, socketPid);
@@ -1355,9 +1353,8 @@ void FlowStore::ApplyUdpSnapshotLocked(
                                 const ConnectionRecord& connection) {
         const auto socket = sockets->find(endpoint);
         if (socket == sockets->end()) return;
-        if (socket->second.pid && connection.pid &&
-            !socket->second.ownerAmbiguous &&
-            socket->second.pid != connection.pid)
+        if (socket->second.pid != connection.pid && socket->second.pid &&
+            connection.pid && !socket->second.ownerAmbiguous)
             return;
         concreteSockets.insert(socket->first);
     };
@@ -1365,9 +1362,8 @@ void FlowStore::ApplyUdpSnapshotLocked(
     for (const auto& process : processes_) {
         for (const auto& item : process.second.connections) {
             const ConnectionRecord& connection = item.second;
-            if (connection.key.proto != Proto::Udp ||
-                (!connection.key.rport && connection.key.remote.isAny()) ||
-                connection.key.lport == 0)
+            if (connection.key.proto != Proto::Udp || !connection.key.lport ||
+                (!connection.key.rport && connection.key.remote.isAny()))
                 continue;
 
             if (connection.key.local.family == family) {
@@ -1403,7 +1399,7 @@ void FlowStore::ApplyUdpSnapshotLocked(
             ConnectionOwnerIndexEntry& owner = syntheticOwner->second;
             const DWORD targetPid = socket.second.ownerAmbiguous
                 ? 0 : socket.second.pid;
-            if (!owner.ended && owner.pid != targetPid)
+            if (owner.pid != targetPid && !owner.ended)
                 MoveCurrentFlowLocked(key, owner, targetPid);
             synthetic = CurrentConnectionLocked(key, owner);
             owner.ownerAmbiguous = socket.second.ownerAmbiguous;
@@ -1445,7 +1441,7 @@ void FlowStore::ApplyUdpSnapshotLocked(
         ConnectionOwnerIndexEntry& owner = OwnerLocked(key, now);
         const DWORD targetPid = socket.second.ownerAmbiguous
             ? 0 : socket.second.pid;
-        if (!owner.ended && owner.pid != targetPid)
+        if (owner.pid != targetPid && !owner.ended)
             MoveCurrentFlowLocked(key, owner, targetPid);
         owner.ownerAmbiguous = socket.second.ownerAmbiguous;
         owner.lastSystemRevision = revision;
@@ -1630,6 +1626,7 @@ void FlowStore::RemoveEmptyProcessesLocked() {
 bool FlowStore::ExpireConnectionLocked(
     ConnectionRecord& connection, ULONGLONG now, ULONGLONG inactiveMs,
     bool processFinishing) {
+    connection.idleHidden = false;
     bool expired = connection.removeAfter && now >= connection.removeAfter;
     const bool ndis = connection.key.source == TrafficSource::Ndis;
     const bool undirectedDriverTcp = connection.dir == Dir::Unknown && !ndis &&
@@ -1646,8 +1643,8 @@ bool FlowStore::ExpireConnectionLocked(
         const ULONGLONG lastActivity = details
             ? std::max(connection.lastActivity, details->lastChangedAt)
             : connection.lastActivity;
-        if (!connection.removeAfter && !processFinishing && lastActivity &&
-            now - lastActivity >= inactiveMs) {
+        if (lastActivity && now - lastActivity >= inactiveMs &&
+            !connection.removeAfter && !processFinishing) {
             connection.removeAfter = now + kFinishedGraceMs;
             // Индекс нужен в четырёхсекундном окне, чтобы новый трафик
             // возобновил ту же запись, а не создал второе поколение.
@@ -1665,22 +1662,36 @@ bool FlowStore::ExpireConnectionLocked(
         // Открытый сокет не сохраняет такой обмен после простоя, но окна
         // завершения соединения и процесса остаются без изменений.
         const bool inactiveUndirectedUdp =
-            connection.dir == Dir::Unknown && connection.key.proto == Proto::Udp &&
-            connection.driverBacked && !connection.removeAfter &&
-            !processFinishing && connection.lastActivity &&
+            connection.dir == Dir::Unknown && connection.lastActivity &&
             now - connection.lastActivity > inactiveMs &&
+            connection.key.proto == Proto::Udp && connection.driverBacked &&
+            !connection.removeAfter && !processFinishing &&
             (!details || !details->lastChangedAt ||
              now - details->lastChangedAt > inactiveMs);
-        if (!inactiveUndirectedUdp && details && details->countersActive &&
-            details->lastChangedAt && now - details->lastChangedAt > inactiveMs) {
+        const bool staleCounters = details && details->lastChangedAt &&
+            now - details->lastChangedAt > inactiveMs && details->countersActive;
+        const bool idleDirectedUdp = connection.lastActivity &&
+            now - connection.lastActivity > kInactiveMs &&
+            connection.key.proto == Proto::Udp &&
+            connection.dir != Dir::Unknown && connection.pid &&
+            !connection.ownerAmbiguous && !connection.removeAfter &&
+            !processFinishing &&
+            (!details || !details->lastChangedAt ||
+             now - details->lastChangedAt > kInactiveMs);
+        if (!inactiveUndirectedUdp && (staleCounters || idleDirectedUdp)) {
             bool localListener = false;
             if (const ConnectionOwnerIndex* index = OwnerIndexFor(
                     ownerIndexes_, connection.key)) {
                 const auto owner = index->find(connection.key);
                 localListener = owner != index->end() &&
                                 owner->second.localListener;
+                // Проверку порта делим с защитой счётчиков. Во втором проходе
+                // снимка достаточно флага, без повторного поиска в индексе.
+                connection.idleHidden = idleDirectedUdp && localListener &&
+                    owner->second.connectionGeneration == connection.generation &&
+                    !owner->second.ended;
             }
-            if (!localListener) {
+            if (!localListener && staleCounters) {
                 DriverDetails& mutableDetails = EnsureDriverDetails(connection);
                 mutableDetails.countersActive = false;
                 mutableDetails.sent = mutableDetails.recv = 0;
@@ -1808,8 +1819,8 @@ void FlowStore::PrepareProcessesLocked(
     std::vector<DWORD> removePids;
     removePids.reserve(dead.size());
     for (const auto& process : processes_) {
-        if (process.first.isHost() && !IsSystemPid(process.first.pid()) && process.second.removeAfter &&
-            now >= process.second.removeAfter)
+        if (process.second.removeAfter && now >= process.second.removeAfter &&
+            process.first.isHost() && !IsSystemPid(process.first.pid()))
             removePids.push_back(process.first.pid());
     }
     RemoveProcessesLocked(removePids);
@@ -1853,8 +1864,8 @@ void FlowStore::Take(View& out, ULONGLONG inactiveMs) {
         for (const auto& connectionItem : process.connections) {
             const ConnectionRecord& connection = connectionItem.second;
             const DriverDetails* details = DriverDetailsOf(connection);
-            if (ProtoInOsTables(connection.key.proto) && details &&
-                details->countersActive) {
+            if (details && details->countersActive &&
+                ProtoInOsTables(connection.key.proto)) {
                 DriverTrafficEntry traffic;
                 traffic.sent = details->sent;
                 traffic.recv = details->recv;
@@ -1902,7 +1913,13 @@ void FlowStore::TakeDisplay(DisplayView& out, ULONGLONG inactiveMs,
     std::lock_guard<std::mutex> lock(mtx_);
     const ULONGLONG now = GetTickCount64();
     PrepareProcessesLocked(dead, now);
+    TakeDisplayLocked(out, now, inactiveMs, showPassive, includeConnections);
+}
 
+void FlowStore::TakeDisplayLocked(DisplayView& out, ULONGLONG now,
+                                  ULONGLONG inactiveMs, bool showPassive,
+                                  bool includeConnections) {
+    idleHiddenUdp_ = 0;
     out.flowCount = 0;
     out.hiddenCount = 0;
     out.driverOnlyFlows = 0;
@@ -1923,6 +1940,10 @@ void FlowStore::TakeDisplay(DisplayView& out, ULONGLONG inactiveMs,
                 continue;
             }
             ++it;
+            if (stored.idleHidden) {
+                ++idleHiddenUdp_;
+                continue;
+            }
             if (IsDisplayState(stored) &&
                 (showPassive || !DisplayTrafficOf(
                     process, stored, lastTakeAt_, now).passive))
@@ -1956,7 +1977,7 @@ void FlowStore::TakeDisplay(DisplayView& out, ULONGLONG inactiveMs,
             if (stored.driverBacked && !stored.systemBacked)
                 ++out.driverOnlyFlows;
 
-            const bool displayState = IsDisplayState(stored);
+            const bool displayState = !stored.idleHidden && IsDisplayState(stored);
             const DisplayTraffic traffic = displayState
                 ? DisplayTrafficOf(process, stored, lastTakeAt_, now)
                 : DisplayTraffic{};
@@ -2127,6 +2148,7 @@ void FlowStore::ResetHost() {
     }
     ownerIndexes_ = ConnectionOwnerIndexes{};
     localSockets_ = LocalSocketTables{};
+    idleHiddenUdp_ = 0;
     for (uint64_t& revision : systemRevision_) revision = 0;
     for (ULONGLONG& tick : bandwidthTick_) tick = 0;
     bandwidthPoll_ = TrafficPeriod{};
@@ -2140,6 +2162,7 @@ void FlowStore::Reset() {
     ndisBandwidthPoll_ = TrafficPeriod{};
     ownerIndexes_ = ConnectionOwnerIndexes{};
     localSockets_ = LocalSocketTables{};
+    idleHiddenUdp_ = 0;
     for (uint64_t& revision : systemRevision_) revision = 0;
     for (ULONGLONG& tick : bandwidthTick_) tick = 0;
     bandwidthPoll_ = TrafficPeriod{};

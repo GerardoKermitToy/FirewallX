@@ -3,6 +3,8 @@
 #include "StringRes.h"
 
 #include <commctrl.h>
+#include <algorithm>
+#include <vector>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -37,6 +39,7 @@ void TestDebugWindow() {
         ++samples;
         out.values[DebugCounters::FlowProcesses] = count;
         out.values[DebugCounters::FlowConnections] = 0;
+        out.values[DebugCounters::FlowHiddenIdleUdp] = count - 1;
     };
     auto readDriverMemory = [&] {
         ++driverSamples;
@@ -55,8 +58,22 @@ void TestDebugWindow() {
           ItemText(list, 1, 0) == L"NDIS driver / pool memory (FwXn) / bytes" &&
           ItemText(list, 0, 1) == L"123456" && ItemText(list, 1, 1) == L"0",
           "driver memory labels or initial values are incorrect");
-    Check(ItemText(list, collectionOffset + DebugCounters::FlowNdisConnections, 0) == LoadStringRes(IDS_DEBUG_NDIS_CONNECTIONS),
-          "NDIS diagnostic label is not localized");
+    Check(ItemText(list, collectionOffset + DebugCounters::FlowNdisConnections, 0) == L"FlowStore / FirewallXNdisFilter: connections",
+          "NDIS diagnostic label is not English");
+    Check(ItemText(list, collectionOffset + DebugCounters::FlowHiddenIdleUdp, 0) ==
+              L"FlowStore / hidden idle UDP records" &&
+          ItemText(list, collectionOffset + DebugCounters::FlowHiddenIdleUdp, 1) == L"2",
+          "idle UDP diagnostic label or count is incorrect");
+    Check(ItemText(list, collectionOffset + DebugCounters::RuleInterfaceCandidates, 0) ==
+              L"RuleStore / interface rule candidates",
+          "interface rule diagnostic label is not English");
+    std::vector<std::wstring> labels;
+    for (int row = 0; row < ListView_GetItemCount(list); ++row) {
+        labels.push_back(ItemText(list, row, 0));
+        Check(!labels.back().empty() && std::all_of(labels.back().begin(), labels.back().end(),
+                  [](wchar_t ch) { return static_cast<unsigned>(ch) < 128; }),
+              "debug window contains a non-English diagnostic label");
+    }
     Check(ItemText(list, collectionOffset + DebugCounters::FlowProcesses, 1) == L"3" &&
           ItemText(list, collectionOffset + DebugCounters::FlowConnections, 1) == L"0" &&
           ItemText(list, collectionOffset + DebugCounters::PendingGroups, 1) == L"Busy",
@@ -91,6 +108,7 @@ void TestDebugWindow() {
         }
     }
     Check(samples > 1 && ItemText(list, collectionOffset + DebugCounters::FlowProcesses, 1) == L"7" &&
+          ItemText(list, collectionOffset + DebugCounters::FlowHiddenIdleUdp, 1) == L"6" &&
           driverSamples == 1, "second timer did not refresh only the collection counts");
     driverMemory = {0, std::nullopt};
     const size_t collectionSamples = samples;
@@ -113,8 +131,11 @@ void TestDebugWindow() {
     Check(driverSamples == 3 && ItemText(list, 0, 1) == L"999" && ItemText(list, 1, 1) == L"888" &&
           ItemText(list, collectionOffset + DebugCounters::FlowProcesses, 1) == L"7",
           "reopened debug window retained stale values");
-    Check(ItemText(list, collectionOffset + DebugCounters::FlowNdisConnections, 0) == LoadStringRes(IDS_DEBUG_NDIS_CONNECTIONS),
-          "reopened debug window did not use the selected language");
+    Check(ItemText(list, collectionOffset + DebugCounters::FlowNdisConnections, 0) == L"FlowStore / FirewallXNdisFilter: connections",
+          "reopened debug window translated a diagnostic label");
+    for (size_t row = 0; row < labels.size(); ++row)
+        Check(ItemText(list, static_cast<int>(row), 0) == labels[row],
+              "UI language changed a debug window label");
     window.Close();
     Check(!window.hwnd(), "reopened debug window did not close");
 

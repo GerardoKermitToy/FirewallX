@@ -979,7 +979,7 @@ void TestNdisIntegration() {
                         IDS_INTERFACE_EXCLUDE_TRANSIT, IDS_INTERFACE_REVERSE_TRAFFIC, IDS_INTERFACE_EXCLUDE_SAVE_ERROR,
                         IDS_INTERFACE_EXCLUDE_APPLY_ERROR,
                         IDS_INTERFACE_INACTIVE, IDS_INTERFACE_RULE, IDS_INTERFACE_COLUMN,
-                        IDS_INTERFACE_STATS_FMT, IDS_INTERFACE_DELETE_FMT, IDS_DEBUG_INTERFACE_CANDIDATES})
+                        IDS_INTERFACE_STATS_FMT, IDS_INTERFACE_DELETE_FMT})
             Check(HasString(id, languages[i].winLangId), "missing interface group translation");
     TestHostInterfaceVerdictIsolation();
     TestFrozenPendingInterfaceIdentity();
