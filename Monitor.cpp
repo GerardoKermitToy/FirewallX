@@ -754,19 +754,6 @@ void Monitor::BuildSnapshot(Snapshot& out, bool buildDisplay) {
                 connection.speed = display.bytesPerSecond();
             }
 
-            if (connection.dir == Dir::Unknown &&
-                connection.key.proto == Proto::Tcp) {
-                if (connection.state == MIB_TCP_STATE_SYN_SENT)
-                    connection.dir = Dir::Out;
-                else if (connection.state == MIB_TCP_STATE_SYN_RCVD ||
-                         connection.state == MIB_TCP_STATE_LISTEN)
-                    connection.dir = Dir::In;
-                else if (display.localListener)
-                    connection.dir = Dir::In;
-                else if (connection.key.rport)
-                    connection.dir = Dir::Out;
-            }
-
             if (useRules && rules_) {
                 // При попадании в кеш условия сопоставления собирать не нужно.
                 const auto matchInfo = [&](RuleMatchInfo& info) {

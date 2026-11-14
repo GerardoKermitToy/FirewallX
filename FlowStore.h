@@ -320,7 +320,6 @@ public:
         Dir dir = Dir::Unknown;
         BytesSource bytesFrom = BytesNone;
         bool ownerAmbiguous = false;
-        bool localListener = false;
         IcmpInfo icmp;
         IcmpInfo icmpOut, icmpIn;
 

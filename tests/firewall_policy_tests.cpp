@@ -663,6 +663,60 @@ Snapshot NextSnapshot(Monitor& monitor) {
     return snapshot;
 }
 
+void TestMonitorDriverTrafficDirection() {
+    FlowStore& flows = FlowStore::Instance();
+    flows.Reset();
+    const FlowKey host4 = MakeFlowKey(
+        Proto::Tcp, V4(192, 0, 2, 20), V4(198, 51, 100, 20), 41200, 443);
+    const FlowKey host6 = MakeFlowKey(Proto::Tcp, V6(20), V6(21), 41201, 443);
+    for (const FlowKey& key : { host4, host6 }) flows.AddBandwidth(key, 10, 5);
+
+    FlowKey guest4 = host4;
+    guest4.source = TrafficSource::Ndis;
+    firewallxndisfilter::Client::BandwidthV4 entry4{};
+    std::memcpy(entry4.local_ip, guest4.local.b, sizeof(entry4.local_ip));
+    std::memcpy(entry4.remote_ip, guest4.remote.b, sizeof(entry4.remote_ip));
+    entry4.local_port = guest4.lport;
+    entry4.remote_port = guest4.rport;
+    entry4.transmitted_bytes = 10;
+    entry4.received_bytes = 5;
+    flows.AddNdisBandwidthBatch(DriverProto::kTcp, &entry4, 1);
+
+    FlowKey guest6 = host6;
+    guest6.source = TrafficSource::Ndis;
+    firewallxndisfilter::Client::BandwidthV6 entry6{};
+    std::memcpy(entry6.local_ip, guest6.local.b, sizeof(entry6.local_ip));
+    std::memcpy(entry6.remote_ip, guest6.remote.b, sizeof(entry6.remote_ip));
+    entry6.local_port = guest6.lport;
+    entry6.remote_port = guest6.rport;
+    entry6.transmitted_bytes = 10;
+    entry6.received_bytes = 5;
+    flows.AddNdisBandwidthBatch(DriverProto::kTcp, &entry6, 1);
+
+    FlowKey known = host4;
+    ++known.lport;
+    FlowStore::ConnEvent event;
+    event.pid = 4;
+    event.dir = Dir::In;
+    flows.NoteConnection(known, event);
+    flows.AddBandwidth(known, 10, 5);
+
+    Monitor monitor;
+    std::wstring warnings;
+    monitor.Start(warnings, nullptr, 0);
+    const Snapshot snapshot = NextSnapshot(monitor);
+    for (const FlowKey& key : { host4, host6, guest4, guest6 }) {
+        const ConnItem* connection = FindConnection(snapshot, key);
+        Check(connection && connection->dir == Dir::Unknown,
+              "монитор выдумал направление трафика драйвера");
+    }
+    const ConnItem* connection = FindConnection(snapshot, known);
+    Check(connection && connection->dir == Dir::In,
+          "монитор потерял направление события драйвера");
+    monitor.Stop();
+    flows.Reset();
+}
+
 void TestMonitorServiceName() {
     ProcItem process;
     process.group = TrafficGroupKey::Host(1000);
@@ -1059,6 +1113,7 @@ int main() {
     TestMissingStoreAndInvalidPolicy();
     TestSettingsRoundTrip();
     TestPolicyResources();
+    TestMonitorDriverTrafficDirection();
     TestMonitorServiceName();
     TestMonitorCoordinatedBandwidthPoll();
     TestMonitorPolicyReasons();

@@ -1723,7 +1723,7 @@ void TestDisplayExcludesExpiredListenerOwner() {
         store.TakeDisplay(display, 0, false);
         const auto* connection = DisplayConnection(DisplayProcess(display, pid), key);
         Check(connection && connection->dir == Dir::Unknown &&
-              !connection->localListener && connection->flowGeneration == generation &&
+              connection->flowGeneration == generation &&
               connection->bytesFrom == BytesDriver &&
               connection->sent == 17 && connection->recv == 9 &&
               connection->removeAfter && (connection->blockedAt != 0) == blocked &&
@@ -2595,6 +2595,47 @@ void ReportPortmasterUdp(const FlowKey& key, uint64_t sent, uint64_t recv) {
         ReportPortmasterBandwidth<pmkext::BandwidthValueV6>(key, sent, recv);
 }
 
+void TestTcpBandwidthRequiresExactOwner() {
+    FlowStore& store = FlowStore::Instance();
+    const DWORD pid = GetCurrentProcessId();
+    for (const FlowKey& key : { Tcp4(3389, 11493), Tcp6(3389, 11493) }) {
+        store.Reset();
+        FlowStore::SystemSnapshot snapshot;
+        auto& rows = key.local.family == AF_INET ? snapshot.tcpV4 : snapshot.tcpV6;
+        (key.local.family == AF_INET ? snapshot.tcpV4Valid : snapshot.tcpV6Valid) = true;
+        FlowKey listener = key;
+        listener.local = IpAddr{};
+        listener.local.family = key.local.family;
+        listener.remote = listener.local;
+        listener.rport = 0;
+        rows.push_back({ listener, pid, MIB_TCP_STATE_LISTEN });
+        FlowKey other = key;
+        ++other.rport;
+        rows.push_back({ other, pid, MIB_TCP_STATE_ESTAB });
+        store.ReplaceSystemSnapshot(snapshot);
+        if (key.local.family == AF_INET)
+            ReportPortmasterBandwidth<pmkext::BandwidthValueV4>(key, 17, 9);
+        else
+            ReportPortmasterBandwidth<pmkext::BandwidthValueV6>(key, 17, 9);
+
+        auto view = Take();
+        const auto* unknown = Connection(Process(view, 0), key);
+        const auto* traffic = DriverTraffic(Process(view, 0), key);
+        Check(unknown && traffic && traffic->sent == 17 && traffic->recv == 9,
+              "TCP bandwidth inferred an owner from a local endpoint");
+        const uint64_t generation = unknown->generation;
+
+        rows.push_back({ key, pid, MIB_TCP_STATE_ESTAB });
+        store.ReplaceSystemSnapshot(snapshot);
+        view = Take();
+        const auto* resolved = Connection(Process(view, pid), key);
+        traffic = DriverTraffic(Process(view, pid), key);
+        Check(resolved && resolved->generation == generation && traffic &&
+              traffic->sent == 17 && traffic->recv == 9,
+              "exact TCP system row did not transfer the unknown bandwidth");
+    }
+}
+
 void TestInactiveUndirectedUdpWithOpenSocket() {
     FlowStore& store = FlowStore::Instance();
     constexpr DWORD pid = 4;
@@ -2744,7 +2785,7 @@ void TestUndirectedUdpKeepsFinishedGrace() {
           "UDP inactivity shortened the process exit grace period");
 }
 
-void TestKnownDirectionAndTcpKeepSocketProtection() {
+void TestKnownDirectionUdpKeepsSocketProtection() {
     FlowStore& store = FlowStore::Instance();
     constexpr DWORD pid = 4;
     for (const FlowKey& key : { Udp4(53902), Udp6(53903) }) {
@@ -2775,40 +2816,196 @@ void TestKnownDirectionAndTcpKeepSocketProtection() {
                   "open socket failed to protect directed UDP flow");
         }
     }
+}
 
-    for (const FlowKey& key : { Tcp4(46900), Tcp6(46901) }) {
+void TestUndirectedPortmasterTcpExpiry() {
+    FlowStore& store = FlowStore::Instance();
+    constexpr ULONGLONG noExpiry = static_cast<ULONGLONG>(-1);
+    for (const FlowKey& key : { Tcp4(46900, 3389), Tcp6(46901, 3389) }) {
+        for (int variant = 0; variant < 3; ++variant) {
+            store.Reset();
+            store.AddBandwidth(key, 10, 5);
+            FlowStore::SystemSnapshot snapshot;
+            snapshot.tcpV4Valid = key.local.family == AF_INET;
+            snapshot.tcpV6Valid = key.local.family == AF_INET6;
+            auto& rows = snapshot.tcpV4Valid ? snapshot.tcpV4 : snapshot.tcpV6;
+            if (variant != 0) {
+                FlowStore::SystemTcpConnection row;
+                row.key = key;
+                row.pid = 4;
+                if (variant == 1) {
+                    row.key.local = IpAddr{};
+                    row.key.local.family = key.local.family;
+                    row.key.remote = row.key.local;
+                    row.key.rport = 0;
+                    row.state = MIB_TCP_STATE_LISTEN;
+                } else {
+                    ++row.key.rport;
+                    row.state = MIB_TCP_STATE_ESTAB;
+                }
+                rows.push_back(row);
+            }
+            store.ReplaceSystemSnapshot(snapshot);
+            auto view = Take();
+            const auto* connection = Connection(Process(view, 0), key);
+            Check(connection && connection->driver && !connection->systemBacked &&
+                  connection->dir == Dir::Unknown && !connection->removeAfter,
+                  "bandwidth-only TCP did not stay undirected and unconfirmed");
+            const ULONGLONG activity = connection->lastActivity;
+            const uint64_t generation = connection->generation;
+            StorageTestAccess::ExpireAt(activity + FlowStore::kInactiveMs - 1);
+            view = Take(noExpiry);
+            connection = Connection(Process(view, 0), key);
+            Check(connection && !connection->removeAfter,
+                  "undirected TCP was marked before two minutes");
+            const ULONGLONG markedAt = activity + FlowStore::kInactiveMs;
+            StorageTestAccess::ExpireAt(markedAt);
+            view = Take(noExpiry);
+            connection = Connection(Process(view, 0), key);
+            Check(connection && connection->generation == generation &&
+                  connection->removeAfter == markedAt + kFinishedGraceMs &&
+                  connection->driver && connection->driver->sent == 10 &&
+                  connection->driver->recv == 5,
+                  "undirected TCP was not retained for its four-second grace period");
+            const auto& owners = key.local.family == AF_INET
+                ? view.ownerIndexes.tcpV4 : view.ownerIndexes.tcpV6;
+            Check(owners.count(key) == 1 &&
+                  owners.at(key).connectionGeneration == generation,
+                  "TCP owner was removed before the grace period");
+            StorageTestAccess::ExpireAt(markedAt + kFinishedGraceMs - 1);
+            view = Take(noExpiry);
+            Check(Connection(Process(view, 0), key) != nullptr,
+                  "undirected TCP was deleted before four seconds");
+            StorageTestAccess::ExpireAt(markedAt + kFinishedGraceMs);
+            view = Take();
+            const auto process = view.processes.find(0);
+            Check(process == view.processes.end() ||
+                  !Connection(process->second, key),
+                  "undirected TCP survived its grace period");
+            const auto& remainingOwners = key.local.family == AF_INET
+                ? view.ownerIndexes.tcpV4 : view.ownerIndexes.tcpV6;
+            Check(remainingOwners.count(key) == 0,
+                  "expired TCP left an owner protected by the listener");
+        }
+    }
+}
+
+void TestUndirectedPortmasterTcpRevival() {
+    FlowStore& store = FlowStore::Instance();
+    constexpr ULONGLONG noExpiry = static_cast<ULONGLONG>(-1);
+    for (const FlowKey& key : { Tcp4(46910), Tcp6(46911) }) {
+        for (bool systemReappears : { false, true }) {
+            store.Reset();
+            store.AddBandwidth(key, 10, 5);
+            auto view = Take();
+            const auto* connection = Connection(Process(view, 0), key);
+            Check(connection && connection->driver, "missing TCP traffic");
+            const uint64_t generation = connection->generation;
+            StorageTestAccess::ExpireAt(connection->lastActivity + FlowStore::kInactiveMs);
+            view = Take(noExpiry);
+            connection = Connection(Process(view, 0), key);
+            Check(connection && connection->removeAfter, "TCP was not marked for removal");
+            if (systemReappears) {
+                FlowStore::SystemSnapshot snapshot;
+                snapshot.tcpV4Valid = key.local.family == AF_INET;
+                snapshot.tcpV6Valid = key.local.family == AF_INET6;
+                auto& rows = snapshot.tcpV4Valid ? snapshot.tcpV4 : snapshot.tcpV6;
+                rows.push_back({ key, 4, MIB_TCP_STATE_ESTAB });
+                store.ReplaceSystemSnapshot(snapshot);
+            } else {
+                store.AddBandwidth(key, 7, 3);
+            }
+            view = Take();
+            connection = Connection(Process(view, systemReappears ? 4 : 0), key);
+            Check(connection && connection->generation == generation &&
+                  !connection->removeAfter && connection->dir == Dir::Unknown &&
+                  connection->driver && connection->driver->sent == (systemReappears ? 10 : 17) &&
+                  connection->driver->recv == (systemReappears ? 5 : 8) &&
+                  connection->systemBacked == systemReappears,
+                  "renewed TCP traffic or exact system row did not revive the same flow");
+        }
+    }
+}
+
+void TestUndirectedPortmasterTcpEndRemainsFinal() {
+    FlowStore& store = FlowStore::Instance();
+    constexpr ULONGLONG noExpiry = static_cast<ULONGLONG>(-1);
+    for (const FlowKey& key : { Tcp4(46915), Tcp6(46916) }) {
         store.Reset();
-        OpenDriverFlow(key, pid, Dir::Unknown);
+        store.AddBandwidth(key, 10, 5);
+        auto view = Take();
+        const auto* connection = Connection(Process(view, 0), key);
+        Check(connection && connection->driver, "missing TCP traffic before END");
+        const uint64_t generation = connection->generation;
+        StorageTestAccess::ExpireAt(connection->lastActivity + FlowStore::kInactiveMs);
+        store.CloseFlow(key, 0, Dir::Unknown, generation);
+        view = Take(noExpiry);
+        connection = Connection(Process(view, 0), key);
+        Check(connection && connection->endReceived && connection->removeAfter,
+              "END did not replace the idle timeout");
+        const ULONGLONG deadline = connection->removeAfter;
+        store.AddBandwidth(key, 7, 3);
+        view = Take();
+        connection = Connection(Process(view, 0), key);
+        Check(connection && connection->generation == generation &&
+              connection->endReceived && connection->removeAfter == deadline,
+              "late TCP traffic cancelled END");
+    }
+}
+
+void TestUndirectedPortmasterTcpExactSystemProtection() {
+    FlowStore& store = FlowStore::Instance();
+    constexpr ULONGLONG noExpiry = static_cast<ULONGLONG>(-1);
+    for (const FlowKey& key : { Tcp4(46920), Tcp6(46921) }) {
+        store.Reset();
         store.AddBandwidth(key, 10, 5);
         FlowStore::SystemSnapshot snapshot;
-        FlowStore::SystemTcpConnection listener;
-        listener.key = key;
-        listener.key.local = IpAddr{};
-        listener.key.local.family = key.local.family;
-        listener.key.remote = listener.key.local;
-        listener.key.rport = 0;
-        listener.pid = pid;
-        listener.state = MIB_TCP_STATE_LISTEN;
-        if (key.local.family == AF_INET) {
-            snapshot.tcpV4Valid = true;
-            snapshot.tcpV4.push_back(listener);
-        } else {
-            snapshot.tcpV6Valid = true;
-            snapshot.tcpV6.push_back(listener);
-        }
+        snapshot.tcpV4Valid = key.local.family == AF_INET;
+        snapshot.tcpV6Valid = key.local.family == AF_INET6;
+        auto& rows = snapshot.tcpV4Valid ? snapshot.tcpV4 : snapshot.tcpV6;
+        rows.push_back({ key, 4, MIB_TCP_STATE_ESTAB });
         store.ReplaceSystemSnapshot(snapshot);
         auto view = Take();
-        const auto* connection = Connection(Process(view, pid), key);
-        Check(connection && connection->driver,
-              "undirected TCP flow is missing before cleanup");
-        const ULONGLONG lastActivity = std::max(
-            connection->lastActivity, connection->driver->lastChangedAt);
-        StorageTestAccess::ExpireAt(lastActivity + FlowStore::kInactiveMs + 1);
-        view = Take();
-        connection = Connection(Process(view, pid), key);
-        Check(connection && connection->dir == Dir::Unknown && connection->driver &&
-              connection->driver->countersActive,
-              "UDP cleanup changed listener protection for TCP");
+        const auto* connection = Connection(Process(view, 4), key);
+        Check(connection && connection->systemBacked && connection->dir == Dir::Unknown,
+              "exact TCP system row did not preserve an unknown direction");
+        const ULONGLONG activity = connection->lastActivity;
+        StorageTestAccess::ExpireAt(activity + FlowStore::kInactiveMs + kFinishedGraceMs);
+        view = Take(noExpiry);
+        connection = Connection(Process(view, 4), key);
+        Check(connection && connection->systemBacked && !connection->removeAfter,
+              "exact TCP system row did not protect the connection");
+        rows.clear();
+        store.ReplaceSystemSnapshot(snapshot);
+        StorageTestAccess::ExpireAt(activity + FlowStore::kInactiveMs + kFinishedGraceMs);
+        view = Take(noExpiry);
+        connection = Connection(Process(view, 4), key);
+        Check(connection && !connection->systemBacked && connection->removeAfter,
+              "TCP was not marked after its exact system row disappeared");
+    }
+}
+
+void TestSystemTcpStatesDoNotSetDirection() {
+    FlowStore& store = FlowStore::Instance();
+    store.Reset();
+    FlowStore::SystemSnapshot snapshot;
+    snapshot.tcpV4Valid = true;
+    for (DWORD state : { MIB_TCP_STATE_SYN_SENT, MIB_TCP_STATE_SYN_RCVD,
+                         MIB_TCP_STATE_LISTEN, MIB_TCP_STATE_ESTAB }) {
+        FlowKey key = Tcp4(static_cast<uint16_t>(47000 + state));
+        if (state == MIB_TCP_STATE_LISTEN) {
+            key.remote = IpAddr{};
+            key.remote.family = AF_INET;
+            key.rport = 0;
+        }
+        snapshot.tcpV4.push_back({ key, 4, state });
+    }
+    store.ReplaceSystemSnapshot(snapshot);
+    const auto view = Take();
+    for (const auto& row : snapshot.tcpV4) {
+        const auto* connection = Connection(Process(view, 4), row.key);
+        Check(connection && connection->dir == Dir::Unknown,
+              "system TCP state invented a connection direction");
     }
 }
 
@@ -2830,10 +3027,16 @@ int main() {
     TestSystemRowsDoNotInventActivity();
     TestUdpEndpointDoesNotDuplicateConcreteFlow();
     TestUdpBandwidthUsesCurrentLocalEndpointOwner();
+    TestTcpBandwidthRequiresExactOwner();
     TestListenerProtectsDriverTraffic();
     TestInactiveUndirectedUdpWithOpenSocket();
     TestUndirectedUdpKeepsFinishedGrace();
-    TestKnownDirectionAndTcpKeepSocketProtection();
+    TestKnownDirectionUdpKeepsSocketProtection();
+    TestUndirectedPortmasterTcpExpiry();
+    TestUndirectedPortmasterTcpRevival();
+    TestUndirectedPortmasterTcpEndRemainsFinal();
+    TestUndirectedPortmasterTcpExactSystemProtection();
+    TestSystemTcpStatesDoNotSetDirection();
     TestEndedOwnersExpireWithListener();
     TestInactiveEntriesWithoutListenerExpire();
     TestLocalConnectionEndClosesReverseFlow();

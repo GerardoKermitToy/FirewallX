@@ -971,6 +971,14 @@ void FlowStore::AddBandwidthLocked(const FlowKey& key, uint64_t sent,
     }
 
     DriverDetails& details = EnsureDriverDetails(*connection);
+    // Возобновление трафика отменяет только удаление из-за простоя, но не END
+    // и не блокировку; прежнее поколение при этом сохраняет свои счётчики.
+    if (connection->dir == Dir::Unknown && key.proto == Proto::Tcp &&
+        connection->removeAfter && !connection->endReceived &&
+        !connection->blockedAt && !connection->retired) {
+        connection->removeAfter = 0;
+        details.frozenCountersKnown = false;
+    }
     details.sent += sent;
     details.recv += recv;
     details.periodSent += sent;
@@ -1281,13 +1289,6 @@ void FlowStore::ApplyTcpSnapshotLocked(
                 // новой базы, но не возвращает соединение к данным драйвера.
                 connection->lastSystemReadAt = hasTraffic ||
                     !connection->systemTrafficAuthoritative ? countersAt : 0;
-            }
-            if (connection->dir == Dir::Unknown) {
-                if (row.state == MIB_TCP_STATE_LISTEN ||
-                    row.state == MIB_TCP_STATE_SYN_RCVD)
-                    connection->dir = Dir::In;
-                else if (row.state == MIB_TCP_STATE_SYN_SENT)
-                    connection->dir = Dir::Out;
             }
         }
     }
@@ -1631,20 +1632,41 @@ bool FlowStore::ExpireConnectionLocked(
     bool processFinishing) {
     bool expired = connection.removeAfter && now >= connection.removeAfter;
     const bool ndis = connection.key.source == TrafficSource::Ndis;
+    const bool undirectedDriverTcp = connection.dir == Dir::Unknown && !ndis &&
+        connection.key.proto == Proto::Tcp && connection.driverBacked &&
+        !connection.systemBacked;
     if (ndis) {
         expired = expired || (!connection.removeAfter && connection.lastActivity &&
             now - connection.lastActivity >= kNdisInactiveMs);
     } else if (!expired && !ProtoInOsTables(connection.key.proto)) {
         expired = !connection.removeAfter && connection.lastActivity &&
                   now - connection.lastActivity > kOtherInactiveMs;
+    } else if (!expired && undirectedDriverTcp) {
+        const DriverDetails* details = DriverDetailsOf(connection);
+        const ULONGLONG lastActivity = details
+            ? std::max(connection.lastActivity, details->lastChangedAt)
+            : connection.lastActivity;
+        if (!connection.removeAfter && !processFinishing && lastActivity &&
+            now - lastActivity >= inactiveMs) {
+            connection.removeAfter = now + kFinishedGraceMs;
+            // Индекс нужен в четырёхсекундном окне, чтобы новый трафик
+            // возобновил ту же запись, а не создал второе поколение.
+            if (ConnectionOwnerIndex* index = OwnerIndexFor(
+                    ownerIndexes_, connection.key)) {
+                const auto owner = index->find(connection.key);
+                if (owner != index->end() &&
+                    owner->second.connectionGeneration == connection.generation)
+                    owner->second.lastAccessAt = now;
+            }
+        }
     } else if (!expired) {
         const DriverDetails* details = DriverDetailsOf(connection);
         // UDP из отчёта о трафике может не иметь события открытия и направления.
         // Открытый сокет не сохраняет такой обмен после простоя, но окна
         // завершения соединения и процесса остаются без изменений.
         const bool inactiveUndirectedUdp =
-            connection.key.proto == Proto::Udp && connection.driverBacked &&
-            connection.dir == Dir::Unknown && !connection.removeAfter &&
+            connection.dir == Dir::Unknown && connection.key.proto == Proto::Udp &&
+            connection.driverBacked && !connection.removeAfter &&
             !processFinishing && connection.lastActivity &&
             now - connection.lastActivity > inactiveMs &&
             (!details || !details->lastChangedAt ||
@@ -1686,8 +1708,13 @@ bool FlowStore::ExpireConnectionLocked(
             ownerIndexes_, connection.key)) {
         auto owner = index->find(connection.key);
         if (owner != index->end() && !owner->second.ended &&
-            owner->second.connectionGeneration == connection.generation)
-            owner->second.connectionGeneration = 0;
+            owner->second.connectionGeneration == connection.generation) {
+            if (undirectedDriverTcp && !connection.endReceived &&
+                !connection.blockedAt && !connection.retired)
+                index->erase(owner);
+            else
+                owner->second.connectionGeneration = 0;
+        }
     }
     ++removedSinceTake_;
     return true;
@@ -1996,22 +2023,6 @@ void FlowStore::TakeDisplay(DisplayView& out, ULONGLONG inactiveMs,
                 display.icmp = details->icmp;
                 display.icmpOut = details->icmpOut;
                 display.icmpIn = details->icmpIn;
-            }
-
-            if (stored.key.proto == Proto::Tcp &&
-                stored.dir == Dir::Unknown &&
-                stored.state != MIB_TCP_STATE_SYN_SENT &&
-                stored.state != MIB_TCP_STATE_SYN_RCVD &&
-                stored.state != MIB_TCP_STATE_LISTEN) {
-                if (const ConnectionOwnerIndex* index = OwnerIndexFor(
-                        ownerIndexes_, stored.key)) {
-                    const auto owner = index->find(stored.key);
-                    // Индексы очищаются после соединений, как и прежде.
-                    // Снимок не должен видеть уже просроченного владельца.
-                    display.localListener = owner != index->end() &&
-                        owner->second.localListener &&
-                        !OwnerExpired(owner->second, now, inactiveMs);
-                }
             }
 
             if (traffic.bytesFrom != BytesDriver || !finished)
