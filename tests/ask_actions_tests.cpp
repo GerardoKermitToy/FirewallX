@@ -178,7 +178,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_GIT_HTTPS_LOOPBACK; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_STEAM_SERVICE; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -3427,6 +3427,8 @@ void TestCapturedConnectionPresets() {
     };
     const std::wstring svchost = SystemDirFile(L"svchost.exe");
     const Profile profiles[] = {
+        {L"C:\\Program Files (x86)\\Common Files\\Steam\\steamservice.exe",
+            IDS_PRESET_STEAM_SERVICE, nullptr, 1, true, RuleAction::Allow},
         {L"C:\\Program Files\\WSL\\wslservice.exe", IDS_PRESET_WSL_SERVICE, L"WSLService", 1, true, RuleAction::Allow},
         {SystemDirFile(L"taskhostw.exe"), IDS_PRESET_TASK_HOST, nullptr, 1, false, RuleAction::Allow},
         {SystemDirFile(L"AppHostRegistrationVerifier.exe"), IDS_PRESET_APPHOST_VERIFIER, nullptr, 1, true, RuleAction::Allow},
@@ -3515,7 +3517,12 @@ void TestCapturedConnectionPresets() {
                                          (loopback ? 51716 : (httpOnly ? 80 : 443)),
                                      loopback ? L"127.0.0.1" : L"198.51.100.20");
         if (loopback) request.key.local = Ip(L"127.0.0.1");
-        request.key.lport = profile.titleId == IDS_PRESET_WUDF_HOST ? 49718 : 41001;
+        if (profile.titleId == IDS_PRESET_STEAM_SERVICE) {
+            request.key.local = Ip(L"192.168.0.196");
+            request.key.remote = Ip(L"23.11.40.157");
+        }
+        request.key.lport = profile.titleId == IDS_PRESET_WUDF_HOST ? 49718 :
+                            profile.titleId == IDS_PRESET_STEAM_SERVICE ? 9191 : 41001;
         request.conditionFlags = 1;
         request.interfaceIndex = 15;
         request.interfaceName = std::make_shared<const std::wstring>(L"Captured Wi-Fi");
@@ -3684,7 +3691,8 @@ void TestCapturedConnectionPresets() {
                 Check(!offered(changed), "captured web preset accepted another protocol or port");
             }
         }
-        if (profile.titleId == IDS_PRESET_WUDF_HOST || profile.titleId == IDS_PRESET_TASK_HOST) {
+        if (profile.titleId == IDS_PRESET_WUDF_HOST || profile.titleId == IDS_PRESET_TASK_HOST ||
+            profile.titleId == IDS_PRESET_STEAM_SERVICE) {
             SetServices(request.pid, {L"ServiceA", L"ServiceB"});
             changed = request;
             changed.process.reset();
@@ -3771,6 +3779,8 @@ void TestCapturedConnectionPresets() {
                       "extended captured preset title omitted HTTP or HTTPS");
             if (profile.titleId == IDS_PRESET_WWA_HOST)
                 Check(title == L"WWAHost.exe: HTTPS / HTTP", "WWAHost preset title was decoded incorrectly");
+            if (profile.titleId == IDS_PRESET_STEAM_SERVICE)
+                Check(title == L"steamservice.exe: HTTPS / HTTP", "Steam service preset title was decoded incorrectly");
             Check(localized.title == (profile.service
                       ? LoadStringResFmt(IDS_PRESET_SERVICE_TITLE_FMT, title.c_str(), profile.service)
                       : title) && localized.rules.size() == profile.count &&

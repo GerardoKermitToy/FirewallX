@@ -225,6 +225,7 @@
 #define IDS_PRESET_RULE_SSDP_WSD_OUT       2316
 #define IDS_PRESET_RULE_SSDP_WSD_IN        2317
 #define IDS_PRESET_GIT_HTTPS_LOOPBACK       2318
+#define IDS_PRESET_STEAM_SERVICE            2319
 
 /* Группы интерфейсов; все переводы также в RulePresets.rc. */
 #define IDS_INTERFACE_UNKNOWN             2110

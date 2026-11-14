@@ -479,6 +479,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_STEAM, L"steam.exe", steam},
     {IDS_PRESET_STEAM, L"steamwebhelper.exe", steamWebHelper},
     {IDS_PRESET_STEAM_ERROR_REPORTER, L"steamerrorreporter64.exe", steamErrorReporter},
+    {IDS_PRESET_STEAM_SERVICE, L"steamservice.exe", httpsOrHttp},
     {IDS_PRESET_NVIDIA_CONTAINER, L"nvcontainer.exe", nvidiaContainer},
     {IDS_PRESET_NVIDIA_DISPLAY, L"nvdisplay.container.exe", nvidiaDisplay},
     {IDS_PRESET_NVIDIA_APP, L"NVIDIA App.exe", nvidiaApp},

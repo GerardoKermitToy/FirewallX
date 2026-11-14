@@ -254,6 +254,7 @@ Result Scan(const std::atomic_bool& cancel, const Progress& progress) {
         L"Opera GX\\*\\opera.exe", L"Microsoft\\EdgeWebView\\Application\\*\\msedgewebview2.exe",
         L"Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe", L"Windows Defender\\MpCmdRun.exe",
         L"Steam\\steam.exe", L"Steam\\bin\\cef\\cef.win7x64\\steamwebhelper.exe",
+        L"Common Files\\Steam\\steamservice.exe",
         L"Steam\\bin\\steamerrorreporter64.exe", L"obs-studio\\bin\\64bit\\obs64.exe",
         L"TeamViewer\\TeamViewer.exe", L"TeamViewer\\TeamViewer_Service.exe",
         L"AnyDesk\\AnyDesk.exe", L"RustDesk\\rustdesk.exe", L"qBittorrent\\qbittorrent.exe",
