@@ -178,7 +178,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_STEAM_SERVICE; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_DNS_SERVER_UDP; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -3498,7 +3498,8 @@ void TestCapturedConnectionPresets() {
         {L"C:\\Apps\\OfficeC2RClient.exe", IDS_PRESET_OFFICE_CLIENT, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Apps\\OfficeClickToRun.exe", IDS_PRESET_OFFICE_SERVICE, L"ClickToRunSvc", 1, true, RuleAction::Allow},
         {L"C:\\Apps\\ONENOTE.EXE", IDS_PRESET_ONENOTE, nullptr, 1, false, RuleAction::Allow},
-        {L"C:\\Apps\\SearchHost.exe", IDS_PRESET_SEARCH_HOST, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\SearchHost.exe",
+            IDS_PRESET_SEARCH_HOST, nullptr, 1, true, RuleAction::Allow},
         {L"C:\\Apps\\Solitaire.exe", IDS_PRESET_SOLITAIRE, nullptr, 1, true, RuleAction::Allow},
         {svchost, IDS_PRESET_PUSH_SERVICE, L"WpnService", 1, false, RuleAction::Allow},
         {svchost, IDS_PRESET_LICENSE_MANAGER, L"LicenseManager", 1, false, RuleAction::Allow},
@@ -3520,9 +3521,13 @@ void TestCapturedConnectionPresets() {
         if (profile.titleId == IDS_PRESET_STEAM_SERVICE) {
             request.key.local = Ip(L"192.168.0.196");
             request.key.remote = Ip(L"23.11.40.157");
+        } else if (profile.titleId == IDS_PRESET_SEARCH_HOST) {
+            request.key.local = Ip(L"192.168.0.225");
+            request.key.remote = Ip(L"23.11.40.157");
         }
         request.key.lport = profile.titleId == IDS_PRESET_WUDF_HOST ? 49718 :
-                            profile.titleId == IDS_PRESET_STEAM_SERVICE ? 9191 : 41001;
+                            profile.titleId == IDS_PRESET_STEAM_SERVICE ? 9191 :
+                            profile.titleId == IDS_PRESET_SEARCH_HOST ? 49733 : 41001;
         request.conditionFlags = 1;
         request.interfaceIndex = 15;
         request.interfaceName = std::make_shared<const std::wstring>(L"Captured Wi-Fi");
@@ -3692,7 +3697,7 @@ void TestCapturedConnectionPresets() {
             }
         }
         if (profile.titleId == IDS_PRESET_WUDF_HOST || profile.titleId == IDS_PRESET_TASK_HOST ||
-            profile.titleId == IDS_PRESET_STEAM_SERVICE) {
+            profile.titleId == IDS_PRESET_STEAM_SERVICE || profile.titleId == IDS_PRESET_SEARCH_HOST) {
             SetServices(request.pid, {L"ServiceA", L"ServiceB"});
             changed = request;
             changed.process.reset();
@@ -3726,7 +3731,8 @@ void TestCapturedConnectionPresets() {
         if (profile.titleId == IDS_PRESET_START_MENU || profile.titleId == IDS_PRESET_DEFENDER_CORE ||
             profile.titleId == IDS_PRESET_EXPLORER || profile.titleId == IDS_PRESET_APPHOST_VERIFIER ||
             profile.titleId == IDS_PRESET_WSL_SERVICE || profile.titleId == IDS_PRESET_BACKGROUND_TASK_HOST ||
-            profile.titleId == IDS_PRESET_HX_OUTLOOK || profile.titleId == IDS_PRESET_MICROSOFT_ACCOUNT) {
+            profile.titleId == IDS_PRESET_HX_OUTLOOK || profile.titleId == IDS_PRESET_MICROSOFT_ACCOUNT ||
+            profile.titleId == IDS_PRESET_SEARCH_HOST) {
             RuleStore existingStore;
             Rule oldHttps = preset.rules.front();
             oldHttps.remotePorts.resize(1);
@@ -3774,7 +3780,7 @@ void TestCapturedConnectionPresets() {
             const std::wstring title = LoadStringRes(profile.titleId);
             if (profile.titleId == IDS_PRESET_WSL_SERVICE || profile.titleId == IDS_PRESET_BACKGROUND_TASK_HOST ||
                 profile.titleId == IDS_PRESET_HX_OUTLOOK || profile.titleId == IDS_PRESET_MICROSOFT_ACCOUNT ||
-                profile.titleId == IDS_PRESET_WWA_HOST)
+                profile.titleId == IDS_PRESET_WWA_HOST || profile.titleId == IDS_PRESET_SEARCH_HOST)
                 Check(title.find(L"HTTPS / HTTP") != std::wstring::npos,
                       "extended captured preset title omitted HTTP or HTTPS");
             if (profile.titleId == IDS_PRESET_WWA_HOST)
@@ -3866,7 +3872,7 @@ void TestCapturedConnectionPresets() {
           LoadStringRes(IDS_PRESET_DIAGTRACK_BLOCK) == L"DiagTrack: блокировать исходящий HTTPS" &&
           LoadStringRes(IDS_PRESET_EDGE_UPDATE) == L"Обновление Microsoft Edge: HTTPS" &&
           LoadStringRes(IDS_PRESET_OFFICE_CLIENT) == L"Office Click-to-Run — клиент: HTTPS" &&
-          LoadStringRes(IDS_PRESET_SEARCH_HOST) == L"Поиск Windows: HTTPS" &&
+          LoadStringRes(IDS_PRESET_SEARCH_HOST) == L"Поиск Windows: HTTPS / HTTP" &&
           LoadStringRes(IDS_PRESET_PUSH_SERVICE) == L"Push-уведомления Windows: HTTPS" &&
           LoadStringRes(IDS_PRESET_WUDF_HOST) == L"WUDFHost: Локальные соединения (loopback), TCP",
           "captured preset Russian titles do not match the compiled translations");
@@ -3903,6 +3909,7 @@ void TestCapturedConnectionPresets() {
           LoadStringRes(IDS_PRESET_XBOX_PC_APP) == L"XboxPcApp.exe: HTTPS / HTTP" &&
           LoadStringRes(IDS_PRESET_XBOX_PC_APP_FT) == L"XboxPcAppFT.exe: HTTPS" &&
           LoadStringRes(IDS_PRESET_START_MENU) == L"StartMenuExperienceHost: HTTPS / HTTP" &&
+          LoadStringRes(IDS_PRESET_SEARCH_HOST) == L"Windows Search: HTTPS / HTTP" &&
           LoadStringRes(IDS_PRESET_SHARED_ACCESS_DHCP) == L"SharedAccess: DHCPv4" &&
           LoadStringRes(IDS_PRESET_SSDP_LOOPBACK) == L"SSDPSRV: Local connections (loopback), UDP",
           "captured preset English titles do not match the compiled translations");
@@ -4027,23 +4034,28 @@ void TestDnscacheMdnsPreset() {
 }
 
 void TestCapturedServicePresets() {
+    enum class Kind { Dhcp, Dns, Loopback };
     struct Profile {
         UINT titleId;
         const wchar_t* service;
-        bool dhcp;
+        Kind kind;
     };
     const Profile profiles[] = {
-        {IDS_PRESET_SHARED_ACCESS_DHCP, L"SharedAccess", true},
-        {IDS_PRESET_SSDP_LOOPBACK, L"SSDPSRV", false}
+        {IDS_PRESET_SHARED_ACCESS_DHCP, L"SharedAccess", Kind::Dhcp},
+        {IDS_PRESET_SHARED_ACCESS_DNS, L"SharedAccess", Kind::Dns},
+        {IDS_PRESET_SSDP_LOOPBACK, L"SSDPSRV", Kind::Loopback}
     };
     const UiLang previous = CurrentUiLang();
     SetUiLang(UiLang::English);
     for (const Profile& profile : profiles) {
+        const bool dhcp = profile.kind == Kind::Dhcp;
+        const bool dns = profile.kind == Kind::Dns;
         AskRequest request = Request(SystemDirFile(L"svchost.exe"), Proto::Udp,
-                                     profile.dhcp ? 67 : 64983,
-                                     profile.dhcp ? L"255.255.255.255" : L"::1");
-        request.key.local = Ip(profile.dhcp ? L"192.168.137.1" : L"::1");
-        request.key.lport = profile.dhcp ? 68 : 64983;
+                                     dhcp ? 67 : dns ? 58690 : 64983,
+                                     dhcp ? L"255.255.255.255" : dns ? L"172.24.80.135" : L"::1");
+        request.key.local = Ip(dhcp ? L"192.168.137.1" : dns ? L"172.24.80.1" : L"::1");
+        request.key.lport = dhcp ? 68 : dns ? 53 : 64983;
+        if (dns) request.dir = Dir::In;
         request.conditionFlags = 1;
         request.interfaceIndex = 15;
         request.interfaceName = std::make_shared<const std::wstring>(L"Captured interface");
@@ -4056,7 +4068,7 @@ void TestCapturedServicePresets() {
         };
         const auto choices = RulePresets::Suggest(request);
         const auto& preset = ChoiceOf(choices, profile.titleId);
-        Check(preset.rules.size() == (profile.dhcp ? 2u : 1u),
+        Check(preset.rules.size() == (dhcp ? 2u : 1u),
               "captured service preset included unrelated rules");
         for (const Rule& rule : preset.rules) {
             Check(rule.scope == RuleScope::App && rule.appPath == request.appPath &&
@@ -4070,7 +4082,7 @@ void TestCapturedServicePresets() {
             return RuleStore::MatchesRule(first, connection.ToQuery());
         };
         Check(offered(request) && matches(request), "captured service preset did not match its request");
-        if (profile.dhcp) {
+        if (dhcp) {
             const Rule& in = preset.rules[1];
             Check(first.dir == Dir::Out &&
                   first.conds == (CondProto | CondDirection | CondService | CondRemoteAddr |
@@ -4104,6 +4116,34 @@ void TestCapturedServicePresets() {
             incoming.key.rport = 69;
             Check(!offered(incoming) && !RuleStore::MatchesRule(in, incoming.ToQuery()),
                   "SharedAccess incoming DHCP accepted another remote port");
+        } else if (dns) {
+            Check(first.dir == Dir::Unknown &&
+                  first.conds == (CondProto | CondService | CondLocalPort) &&
+                  first.localPorts.size() == 1 && first.localPorts[0].from == 53 &&
+                  first.localPorts[0].to == 53 && first.remotePorts.empty() &&
+                  first.remoteAddrs.empty() && first.localAddrs.empty() &&
+                  first.interfaceName.empty() && first.conditionFlags == 0,
+                  "SharedAccess DNS lost its local port or pinned a captured condition");
+            for (Dir dir : {Dir::In, Dir::Out, Dir::Unknown}) {
+                for (const auto& [local, remote] : {
+                    std::pair{L"192.0.2.1", L"198.51.100.20"},
+                    std::pair{L"2001:db8::1", L"2001:db8::20"}
+                }) {
+                    AskRequest changed = request;
+                    changed.dir = dir;
+                    changed.key.local = Ip(local);
+                    changed.key.remote = Ip(remote);
+                    changed.key.rport = 12345;
+                    Check(offered(changed) && matches(changed),
+                          "SharedAccess DNS pinned an address, remote port or direction");
+                }
+            }
+            AskRequest changed = request;
+            changed.key.lport = 54;
+            Check(!offered(changed) && !matches(changed), "SharedAccess DNS accepted another local port");
+            changed.key.lport = request.key.rport;
+            changed.key.rport = 53;
+            Check(!offered(changed) && !matches(changed), "SharedAccess DNS used the remote DNS port");
         } else {
             Check(first.dir == Dir::Out &&
                   first.conds == (CondProto | CondDirection | CondService | CondRemoteAddr | CondLocalAddr) &&
@@ -4157,13 +4197,15 @@ void TestCapturedServicePresets() {
             const auto translated = RulePresets::Suggest(request);
             const auto& localized = ChoiceOf(translated, profile.titleId);
             const std::wstring title = LoadStringRes(profile.titleId);
+            if (dns)
+                Check(title == L"SharedAccess: DNS, UDP 53", "SharedAccess DNS title was decoded incorrectly");
             Check(localized.title == LoadStringResFmt(IDS_PRESET_SERVICE_TITLE_FMT, title.c_str(), profile.service) &&
                   localized.rules.size() == preset.rules.size() &&
                   RulePresets::Apply(store, request, localized.rules) == 0 && store.version() == version,
                   "localized service preset lost its title or duplicated rules");
             for (size_t j = 0; j < localized.rules.size(); ++j) {
-                const UINT nameId = profile.dhcp ? (j ? IDS_PRESET_RULE_DHCP4_IN : IDS_PRESET_RULE_DHCP4)
-                                                 : IDS_PRESET_RULE_LOOPBACK_UDP;
+                const UINT nameId = dhcp ? (j ? IDS_PRESET_RULE_DHCP4_IN : IDS_PRESET_RULE_DHCP4)
+                                         : dns ? IDS_PRESET_RULE_DNS_SERVER_UDP : IDS_PRESET_RULE_LOOPBACK_UDP;
                 const std::wstring name = LoadStringRes(nameId);
                 Check(localized.rules[j].name == LoadStringResFmt(IDS_PRESET_SERVICE_RULE_NAME_FMT,
                       title.c_str(), profile.service, name.c_str()), "service preset lost a localized rule name");

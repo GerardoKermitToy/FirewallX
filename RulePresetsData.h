@@ -343,6 +343,9 @@ inline constexpr NetworkRule teamViewerService[] = {
 };
 inline constexpr NetworkRule loopbackTcpOnly[] = { loopbackTcpOut };
 inline constexpr NetworkRule loopbackUdpOnly[] = { loopbackUdpOut };
+inline constexpr NetworkRule sharedAccessDns[] = {
+    {IDS_PRESET_RULE_DNS_SERVER_UDP, Proto::Udp, Dir::Unknown, {}, pDns}
+};
 inline constexpr NetworkRule sharedAccessDhcp[] = {
     {IDS_PRESET_RULE_DHCP4, Proto::Udp, Dir::Out, pDhcp4Server, pDhcp4Client, aLimitedBroadcast},
     {IDS_PRESET_RULE_DHCP4_IN, Proto::Udp, Dir::In, pDhcp4Client, pDhcp4Server}
@@ -564,7 +567,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_OFFICE_SERVICE, L"OfficeClickToRun.exe", httpsOrHttp,
         Host::AppService, L"ClickToRunSvc"},
     {IDS_PRESET_ONENOTE, L"ONENOTE.EXE", httpsOnly},
-    {IDS_PRESET_SEARCH_HOST, L"SearchHost.exe", httpsOnly},
+    {IDS_PRESET_SEARCH_HOST, L"SearchHost.exe", httpsOrHttp},
     {IDS_PRESET_SOLITAIRE, L"Solitaire.exe", httpsOrHttp},
     {IDS_PRESET_GIT, L"git.exe;git-remote-https.exe;git-remote-http.exe", git},
     {IDS_PRESET_GIT_HTTPS_LOOPBACK, L"git-remote-https.exe", gitHttpsLoopback},
@@ -588,6 +591,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_MICROSOFT_ACCOUNT, L"svchost.exe", httpsOrHttp, Host::Service, L"wlidsvc"},
     {IDS_PRESET_WAAS_MEDIC, L"svchost.exe", httpsOnly, Host::Service, L"WaaSMedicSvc"},
     {IDS_PRESET_DIAGTRACK_BLOCK, L"svchost.exe", httpsBlock, Host::Service, L"DiagTrack"},
+    {IDS_PRESET_SHARED_ACCESS_DNS, L"svchost.exe", sharedAccessDns, Host::Service, L"SharedAccess"},
     {IDS_PRESET_SHARED_ACCESS_DHCP, L"svchost.exe", sharedAccessDhcp, Host::Service, L"SharedAccess"},
     {IDS_PRESET_DHCP_CLIENT_PORTS, L"svchost.exe", dhcpClientPorts, Host::Service, L"SharedAccess"},
     {IDS_PRESET_SSDP_LOOPBACK, L"svchost.exe", loopbackUdpOnly, Host::Service, L"SSDPSRV"},

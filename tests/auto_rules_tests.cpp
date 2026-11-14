@@ -103,7 +103,7 @@ struct TempDirectory {
                                      L"FeedbackHub.exe", L"MSPUB.EXE", L"POWERPNT.EXE", L"WINWORD.EXE",
                                      L"BackgroundDownload.exe", L"Blend.exe", L"PerfWatson2.exe",
                                      L"iTunes.exe", L"Wireshark.exe", L"SIHClient.exe", L"taskhostw.exe",
-                                     L"git-remote-https.exe", L"steamservice.exe",
+                                     L"git-remote-https.exe", L"steamservice.exe", L"SearchHost.exe",
                                      L"CopilotApp.exe", L"explorer.exe", L"MpCmdRun.exe",
                                      L"Discord.exe", L"obs64.exe", L"OneDrive.exe",
                                      L"OneDrive.Sync.Service.exe", L"OneDriveUpdaterService.exe",
@@ -964,6 +964,21 @@ void GeneratedRules(const std::wstring& signedPath, const std::wstring& unsigned
         CheckAuto((rule.conds & CondService) && rule.services.size() == 1 &&
                   EqualNoCase(rule.services.front().name, dns.name),
                   "generated svchost rule was not restricted to the verified service");
+    ServiceEntry sharedAccess;
+    sharedAccess.name = L"SharedAccess";
+    serviceRules = RulePresets::Generate(svchost, {sharedAccess});
+    CheckAuto(serviceRules.size() == 4 &&
+              std::all_of(serviceRules.begin(), serviceRules.end(), [&](const Rule& rule) {
+                  return rule.scope == RuleScope::App && rule.appPath == svchost &&
+                         rule.action == RuleAction::Allow && (rule.conds & CondService) &&
+                         rule.services.size() == 1 && rule.services.front().name == sharedAccess.name;
+              }) && std::count_if(serviceRules.begin(), serviceRules.end(), [](const Rule& rule) {
+                  return rule.proto == Proto::Udp && rule.dir == Dir::Unknown &&
+                         rule.conds == (CondProto | CondService | CondLocalPort) &&
+                         rule.localPorts.size() == 1 && rule.localPorts[0].from == 53 &&
+                         rule.localPorts[0].to == 53 && rule.remotePorts.empty() &&
+                         rule.localAddrs.empty() && rule.remoteAddrs.empty();
+              }) == 1, "generation omitted SharedAccess DNS or changed the existing DHCP rules");
     ServiceEntry userPush;
     userPush.name = L"WpnUserService_test";
     serviceRules = RulePresets::Generate(svchost, {userPush});
@@ -1260,7 +1275,7 @@ void GeneratedNewPrograms(const std::wstring& systemExe, const wchar_t* unsigned
     const Program programs[] = {
         {L"BackgroundDownload.exe", 1}, {L"Blend.exe", 1}, {L"PerfWatson2.exe", 1},
         {L"iTunes.exe", 4}, {L"Wireshark.exe", 1}, {L"SIHClient.exe", 1}, {L"taskhostw.exe", 2},
-        {L"git-remote-https.exe", 4}, {L"steamservice.exe", 1}
+        {L"git-remote-https.exe", 4}, {L"steamservice.exe", 1}, {L"SearchHost.exe", 1}
     };
     TempDirectory signedDir, unsignedDir, excludedDir;
     std::vector<std::wstring> candidates;
@@ -1567,7 +1582,8 @@ int main(int argc, char** argv) {
                                 L"YandexDisk4.exe", L"AnyDesk.exe", L"RustDesk.exe", L"TeamViewer.exe",
                                 L"TeamViewer_Service.exe", L"AppHostRegistrationVerifier.exe",
                                 L"backgroundTaskHost.exe", L"HxOutlook.exe", L"WWAHost.exe",
-                                L"Photos.exe", L"wslservice.exe", L"git-remote-https.exe", L"steamservice.exe"})
+                                L"Photos.exe", L"wslservice.exe", L"git-remote-https.exe", L"steamservice.exe",
+                                L"SearchHost.exe"})
         CheckAuto(CopyFileW(systemExe.c_str(), dir.File(name).c_str(), FALSE),
                   "cannot copy captured-preset test executable");
     GeneratedIgmp(dir.File(L"generation.db"));
@@ -1613,6 +1629,10 @@ int main(int argc, char** argv) {
                                               Proto::Tcp, L"192.168.0.196", L"23.11.40.157");
     AppStorageTestAccess::SignedCapturedPreset(dir.File(L"steamservice.exe"), 78, 1, 9191, 80,
                                               Proto::Tcp, L"192.168.0.196", L"23.11.40.157");
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"SearchHost.exe"), 79, 1, 49733, 80,
+                                              Proto::Tcp, L"192.168.0.225", L"23.11.40.157");
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"SearchHost.exe"), 80, 1, 49733, 443,
+                                              Proto::Tcp, L"192.168.0.225", L"23.11.40.157");
     AppStorageTestAccess::SignedCapturedPreset(dir.File(L"explorer.exe"), 49, 1, 40049, 80,
                                               Proto::Tcp, L"192.0.2.1", L"198.51.100.1");
     AppStorageTestAccess::SignedCapturedPreset(dir.File(L"MpCmdRun.exe"), 50, 1, 40050, 443,
