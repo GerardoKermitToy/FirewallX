@@ -13,6 +13,10 @@ struct Choice {
 // «Другие...» добавляет окно запроса, а не каталог сетевых правил.
 std::vector<Choice> Suggest(const AskRequest& request);
 
+// Проверяет строгое включение по портам при совпадении остальных условий.
+// Используется только для выбора более полной предустановки при равном числе правил.
+bool StrictlyCovers(const std::vector<Rule>& wider, const std::vector<Rule>& narrower);
+
 // Добавляет недостающие правила одной операцией. Имена, порядок и выключенные
 // условия не участвуют в поиске дубликатов; найденное выключенное правило включается.
 size_t Apply(RuleStore& store, const AskRequest& request,

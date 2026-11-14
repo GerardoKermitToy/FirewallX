@@ -178,7 +178,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_NETBIOS_LOCAL_BLOCK; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_GIT_HTTPS_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -1285,6 +1285,83 @@ void TestApplicationSuggestions() {
     }
 }
 
+void TestCombinedPresetPorts() {
+    struct Example {
+        const wchar_t* path;
+        UINT titleId;
+        const wchar_t* service;
+        Proto proto;
+        std::vector<std::pair<unsigned, unsigned>> ranges;
+    };
+    const Example examples[] = {
+        {L"C:\\Apps\\outlook.exe", IDS_PRESET_MAIL, nullptr, Proto::Tcp,
+            {{443, 443}, {465, 465}, {587, 587}, {993, 993}, {995, 995}}},
+        {L"C:\\Apps\\teams.exe", IDS_PRESET_CHAT, nullptr, Proto::Tcp, {{443, 443}, {80, 80}}},
+        {L"C:\\Apps\\teams.exe", IDS_PRESET_CHAT, nullptr, Proto::Udp,
+            {{443, 443}, {3478, 3481}, {8801, 8810}}},
+        {L"C:\\Apps\\discord.exe", IDS_PRESET_DISCORD, nullptr, Proto::Udp,
+            {{443, 443}, {3478, 3481}, {50000, 65535}}},
+        {L"C:\\Apps\\telegram.exe", IDS_PRESET_TELEGRAM, nullptr, Proto::Tcp,
+            {{443, 443}, {80, 80}, {5222, 5222}}},
+        {L"C:\\Apps\\steam.exe", IDS_PRESET_STEAM, nullptr, Proto::Tcp,
+            {{443, 443}, {80, 80}, {27015, 27050}}},
+        {L"C:\\Apps\\steam.exe", IDS_PRESET_STEAM, nullptr, Proto::Udp,
+            {{443, 443}, {4380, 4380}, {27000, 27200}}},
+        {L"C:\\Apps\\steamwebhelper.exe", IDS_PRESET_STEAM, nullptr, Proto::Tcp,
+            {{443, 443}, {80, 80}, {27015, 27050}}},
+        {L"C:\\Apps\\steamwebhelper.exe", IDS_PRESET_STEAM, nullptr, Proto::Udp,
+            {{443, 443}, {4380, 4380}, {27000, 27200}}},
+        {L"C:\\Apps\\AnyDesk.exe", IDS_PRESET_ANYDESK, nullptr, Proto::Tcp,
+            {{443, 443}, {80, 80}, {6568, 6568}}},
+        {L"C:\\Apps\\RustDesk.exe", IDS_PRESET_RUSTDESK, nullptr, Proto::Tcp,
+            {{443, 443}, {80, 80}, {21115, 21116}}},
+        {L"C:\\Apps\\TeamViewer_Service.exe", IDS_PRESET_TEAMVIEWER_SERVICE, L"TeamViewer", Proto::Tcp,
+            {{443, 443}, {80, 80}, {5938, 5938}}},
+        {L"C:\\Apps\\git.exe", IDS_PRESET_GIT, nullptr, Proto::Tcp,
+            {{443, 443}, {80, 80}, {22, 22}}}
+    };
+    for (const Example& example : examples) {
+        AskRequest request = Request(example.path, example.proto,
+                                     static_cast<uint16_t>(example.ranges.front().first));
+        if (example.service) SetServices(request.pid, {example.service});
+        else SetServices(request.pid, {});
+        const auto choices = RulePresets::Suggest(request);
+        const auto& preset = ChoiceOf(choices, example.titleId);
+        const uint32_t conds = CondProto | CondDirection | CondRemotePort |
+                               (example.service ? CondService : 0);
+        const auto found = std::find_if(preset.rules.begin(), preset.rules.end(), [&](const Rule& rule) {
+            return rule.proto == example.proto && rule.conds == conds;
+        });
+        Check(found != preset.rules.end(), "combined preset port rule missing");
+        const Rule& rule = *found;
+        Check(rule.scope == RuleScope::App && rule.appPath == request.appPath &&
+              rule.action == RuleAction::Allow && rule.dir == Dir::Out &&
+              rule.remotePorts.size() == example.ranges.size() && rule.localPorts.empty() &&
+              rule.remoteAddrs.empty() && rule.localAddrs.empty() && rule.interfaceName.empty() &&
+              rule.conditionFlags == 0 &&
+              (example.service ? rule.services.size() == 1 && rule.services[0].name == example.service
+                               : rule.services.empty()),
+              "combined preset port rule gained or lost a condition");
+        MatchQuery query = request.ToQuery();
+        for (unsigned port = 0; port <= 65535; ++port) {
+            query.remotePort = static_cast<uint16_t>(port);
+            const bool expected = std::any_of(example.ranges.begin(), example.ranges.end(),
+                [&](const auto& range) { return range.first <= port && port <= range.second; });
+            Check(RuleStore::MatchesRule(rule, query) == expected,
+                  "combined preset rule changed the allowed remote port set");
+        }
+        query.remotePort = static_cast<uint16_t>(example.ranges.front().first);
+        query.dir = Dir::In;
+        Check(RuleStore::MatchesRule(rule, query), "combined rule changed allow direction semantics");
+        query.proto = example.proto == Proto::Tcp ? Proto::Udp : Proto::Tcp;
+        Check(!RuleStore::MatchesRule(rule, query), "combined rule accepted another protocol");
+        query.proto = example.proto;
+        query.appPath = L"C:\\Other\\unrelated.exe";
+        Check(!RuleStore::MatchesRule(rule, query), "combined rule escaped the application path");
+    }
+    SetServices(GetCurrentProcessId(), {});
+}
+
 void TestFeedbackOfficeAndWebViewPresets() {
     const UiLang previous = CurrentUiLang();
     SetUiLang(UiLang::English);
@@ -1301,7 +1378,17 @@ void TestFeedbackOfficeAndWebViewPresets() {
         {L"C:\\Program Files\\Microsoft Office\\root\\Office16\\POWERPNT.EXE",
             IDS_PRESET_POWERPOINT, L"POWERPNT.EXE: HTTPS / HTTP"},
         {L"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
-            IDS_PRESET_WORD, L"WINWORD.EXE: HTTPS / HTTP"}
+            IDS_PRESET_WORD, L"WINWORD.EXE: HTTPS / HTTP"},
+        {L"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\resources\\app\\ServiceHub\\Services\\Microsoft.VisualStudio.Setup.Service\\BackgroundDownload.exe",
+            IDS_PRESET_BACKGROUND_DOWNLOAD, L"BackgroundDownload.exe: HTTPS / HTTP"},
+        {L"C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\Common7\\IDE\\Blend.exe",
+            IDS_PRESET_BLEND, L"Blend.exe: HTTPS / HTTP"},
+        {L"C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\Common7\\IDE\\PerfWatson2.exe",
+            IDS_PRESET_PERFWATSON, L"PerfWatson2.exe: HTTPS / HTTP"},
+        {L"C:\\Windows\\System32\\SIHClient.exe",
+            IDS_PRESET_SIH_CLIENT, L"SIHClient.exe: HTTPS / HTTP"},
+        {L"C:\\Program Files\\Wireshark\\Wireshark.exe",
+            IDS_PRESET_WIRESHARK, L"Wireshark.exe: HTTPS / HTTP"}
     };
     for (const auto& profile : profiles) {
         AskRequest request = Request(profile.path, Proto::Tcp, 443, L"150.171.73.13");
@@ -1481,6 +1568,201 @@ void TestFeedbackOfficeAndWebViewPresets() {
     SetUiLang(previous);
 }
 
+void TestITunesPreset() {
+    const UiLang previous = CurrentUiLang();
+    SetUiLang(UiLang::English);
+    const std::wstring path = L"C:\\Program Files\\iTunes\\iTunes.exe";
+    AskRequest request = Request(path, Proto::Tcp, 47001, L"127.0.0.1");
+    request.key.local = Ip(L"127.0.0.1");
+    request.key.lport = 52774;
+    request.conditionFlags = 1;
+    request.interfaceName = std::make_shared<const std::wstring>(L"Captured interface");
+    const auto choices = RulePresets::Suggest(request);
+    Check(choices.size() == 1, "iTunes did not get its preset");
+    const auto& preset = ChoiceOf(choices, IDS_PRESET_ITUNES);
+    Check(preset.title == L"iTunes.exe: 127.0.0.1 / HTTPS / HTTP / mDNS" && preset.rules.size() == 4,
+          "iTunes preset lost its title or four rules");
+    for (const Rule& rule : preset.rules) {
+        Check(rule.scope == RuleScope::App && rule.appPath == path &&
+              rule.action == RuleAction::Allow && rule.services.empty() &&
+              rule.interfaceName.empty() && rule.conditionFlags == 0 && !rule.autoName,
+              "iTunes preset lost its application scope or pinned an unrelated condition");
+    }
+    for (size_t i = 0; i < 2; ++i) {
+        const Rule& rule = preset.rules[i];
+        Check(rule.proto == (i == 0 ? Proto::Tcp : Proto::Udp) && rule.dir == Dir::Unknown &&
+              rule.conds == (CondProto | CondRemoteAddr | CondLocalAddr) &&
+              rule.remotePorts.empty() && rule.localPorts.empty() &&
+              rule.remoteAddrs.size() == 1 && rule.remoteAddrs[0].addr == Ip(L"127.0.0.1") &&
+              rule.localAddrs.size() == 1 && rule.localAddrs[0].addr == Ip(L"127.0.0.1"),
+              "iTunes loopback rule was widened or pinned ports/direction");
+        for (Dir dir : {Dir::In, Dir::Out}) {
+            AskRequest flow = request;
+            flow.dir = dir;
+            flow.key.proto = rule.proto;
+            flow.key.lport = 1;
+            flow.key.rport = 65535;
+            Check(RuleStore::MatchesRule(rule, flow.ToQuery()),
+                  "iTunes loopback rule did not allow arbitrary ports or directions");
+            for (const wchar_t* address : {L"127.0.0.2", L"::1", L"192.0.2.10"}) {
+                AskRequest wrong = flow;
+                wrong.key.local = Ip(address);
+                Check(!RuleStore::MatchesRule(rule, wrong.ToQuery()),
+                      "iTunes loopback rule accepted another local address");
+                wrong = flow;
+                wrong.key.remote = Ip(address);
+                Check(!RuleStore::MatchesRule(rule, wrong.ToQuery()),
+                      "iTunes loopback rule accepted another remote address");
+            }
+        }
+    }
+    const Rule& web = preset.rules[2];
+    Check(web.proto == Proto::Tcp && web.dir == Dir::Out &&
+          web.conds == (CondProto | CondDirection | CondRemotePort) &&
+          web.remotePorts.size() == 2 && web.remotePorts[0].from == 443 &&
+          web.remotePorts[0].to == 443 && web.remotePorts[1].from == 80 &&
+          web.remotePorts[1].to == 80 && web.localPorts.empty() &&
+          web.localAddrs.empty() && web.remoteAddrs.empty(),
+          "iTunes web rule lost HTTP/HTTPS or pinned an endpoint");
+    const Rule& mdns = preset.rules[3];
+    Check(mdns.proto == Proto::Udp && mdns.dir == Dir::Unknown &&
+          mdns.conds == (CondProto | CondRemotePort | CondLocalPort) &&
+          mdns.remotePorts.size() == 1 && mdns.remotePorts[0].from == 5353 &&
+          mdns.remotePorts[0].to == 5353 && mdns.localPorts.size() == 1 &&
+          mdns.localPorts[0].from == 5353 && mdns.localPorts[0].to == 5353 &&
+          mdns.localAddrs.empty() && mdns.remoteAddrs.empty(),
+          "iTunes mDNS rule lost its paired ports or pinned addresses/direction");
+    RuleStore store;
+    Check(RulePresets::Apply(store, request, preset.rules) == 4 && store.Count() == 4,
+          "cannot apply iTunes preset");
+    const uint64_t version = store.version();
+    for (Dir dir : {Dir::In, Dir::Out}) {
+        for (uint16_t port : {uint16_t{80}, uint16_t{443}}) {
+            AskRequest flow = Request(path, Proto::Tcp, port, L"203.0.113.33");
+            flow.dir = dir;
+            flow.key.lport = 60000;
+            const auto offered = RulePresets::Suggest(flow);
+            RuleAction action = RuleAction::Block;
+            Check(offered.size() == 1 && offered.front().titleId == IDS_PRESET_ITUNES &&
+                  RuleStore::MatchesRule(web, flow.ToQuery()) &&
+                  store.MatchVerdict(flow.ToQuery(), action) && action == RuleAction::Allow,
+                  "iTunes web rule lost a port or existing direction handling");
+        }
+        AskRequest flow = Request(path, Proto::Udp, 5353, L"224.0.0.251");
+        flow.dir = dir;
+        flow.key.lport = 5353;
+        const auto offered = RulePresets::Suggest(flow);
+        RuleAction action = RuleAction::Block;
+        Check(offered.size() == 1 && offered.front().titleId == IDS_PRESET_ITUNES &&
+              RuleStore::MatchesRule(mdns, flow.ToQuery()) &&
+              store.MatchVerdict(flow.ToQuery(), action) && action == RuleAction::Allow,
+              "iTunes mDNS rule missed matching traffic");
+        flow.key.local = Ip(L"10.20.30.40");
+        flow.key.remote = Ip(L"198.51.100.33");
+        Check(RuleStore::MatchesRule(mdns, flow.ToQuery()), "iTunes mDNS rule pinned the captured addresses");
+        flow.key.rport = 5354;
+        Check(!RuleStore::MatchesRule(mdns, flow.ToQuery()), "iTunes mDNS rule accepted another remote port");
+        flow.key.rport = 5353;
+        flow.key.lport = 5354;
+        Check(!RuleStore::MatchesRule(mdns, flow.ToQuery()), "iTunes mDNS rule accepted another local port");
+    }
+    AskRequest wrong = Request(path, Proto::Tcp, 8080, L"198.51.100.33");
+    Check(RulePresets::Suggest(wrong).empty(), "iTunes preset accepted an unrelated connection");
+    wrong = request;
+    wrong.appPath = L"D:\\Other\\iTunes.exe";
+    Check(RulePresets::Suggest(wrong).size() == 1 &&
+          !RuleStore::MatchesRule(preset.rules[0], wrong.ToQuery()),
+          "iTunes preset lost filename matching or concrete path scope");
+    wrong = request;
+    wrong.appPath = L"C:\\Apps\\other.exe";
+    Check(RulePresets::Suggest(wrong).empty(), "iTunes preset matched another executable");
+    wrong = request;
+    wrong.ownerAmbiguous = true;
+    Check(RulePresets::Suggest(wrong).empty(), "ambiguous owner received iTunes preset");
+    size_t count = 0;
+    const UiLangInfo* languages = UiLangs(count);
+    for (size_t i = 0; i < count; ++i) {
+        SetUiLang(languages[i].lang);
+        const auto localized = RulePresets::Suggest(request);
+        const auto& translated = ChoiceOf(localized, IDS_PRESET_ITUNES);
+        Check(translated.title == L"iTunes.exe: 127.0.0.1 / HTTPS / HTTP / mDNS" &&
+              translated.rules.size() == 4 &&
+              RulePresets::Apply(store, request, translated.rules) == 0 &&
+              store.Count() == 4 && store.version() == version,
+              "localized iTunes preset was lost or duplicated");
+    }
+    SetUiLang(previous);
+}
+
+void TestTaskHostHttpPreset() {
+    const UiLang previous = CurrentUiLang();
+    SetUiLang(UiLang::English);
+    AskRequest request = Request(SystemDirFile(L"taskhostw.exe"), Proto::Tcp, 80, L"165.204.91.91");
+    request.key.local = Ip(L"192.168.0.116");
+    request.key.lport = 4867;
+    request.interfaceName = std::make_shared<const std::wstring>(L"Captured Wi-Fi");
+    request.conditionFlags = 1;
+    const auto choices = RulePresets::Suggest(request);
+    Check(choices.size() == 1, "taskhostw HTTP did not get its preset");
+    const auto& preset = ChoiceOf(choices, IDS_PRESET_TASK_HOST_HTTP);
+    Check(preset.title == L"taskhostw.exe: HTTP" && preset.rules.size() == 1,
+          "taskhostw HTTP preset lost its title or rule");
+    const Rule& rule = preset.rules.front();
+    Check(rule.scope == RuleScope::App && rule.appPath == request.appPath &&
+          rule.action == RuleAction::Allow && rule.proto == Proto::Tcp && rule.dir == Dir::Out &&
+          rule.conds == (CondProto | CondDirection | CondRemotePort) &&
+          rule.remotePorts.size() == 1 && rule.remotePorts[0].from == 80 && rule.remotePorts[0].to == 80 &&
+          rule.localPorts.empty() && rule.localAddrs.empty() && rule.remoteAddrs.empty() &&
+          rule.services.empty() && rule.interfaceName.empty() && rule.conditionFlags == 0,
+          "taskhostw HTTP rule lost its conditions or pinned an endpoint");
+    RuleStore store;
+    Check(RulePresets::Apply(store, request, preset.rules) == 1, "cannot apply taskhostw HTTP preset");
+    AskRequest https = request;
+    https.key.rport = 443;
+    const auto httpsChoices = RulePresets::Suggest(https);
+    Check(httpsChoices.size() == 1 && httpsChoices.front().titleId == IDS_PRESET_TASK_HOST &&
+          !RuleStore::MatchesRule(rule, https.ToQuery()) &&
+          RulePresets::Apply(store, https, httpsChoices.front().rules) == 1 && store.Count() == 2,
+          "taskhostw HTTP preset changed or duplicated the existing HTTPS preset");
+    for (Dir dir : {Dir::In, Dir::Out}) {
+        AskRequest flow = request;
+        flow.dir = dir;
+        flow.key.remote = Ip(L"203.0.113.33");
+        flow.key.local = Ip(L"10.20.30.40");
+        flow.key.lport = 60000;
+        flow.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
+        flow.conditionFlags.reset();
+        RuleAction action = RuleAction::Block;
+        Check(RuleStore::MatchesRule(rule, flow.ToQuery()) &&
+              store.MatchVerdict(flow.ToQuery(), action) && action == RuleAction::Allow,
+              "taskhostw HTTP pinned an endpoint or changed direction handling");
+    }
+    for (auto [proto, port] : {std::pair{Proto::Udp, uint16_t{80}},
+                               std::pair{Proto::Tcp, uint16_t{8080}}}) {
+        AskRequest wrong = request;
+        wrong.key.proto = proto;
+        wrong.key.rport = port;
+        Check(RulePresets::Suggest(wrong).empty() && !RuleStore::MatchesRule(rule, wrong.ToQuery()),
+              "taskhostw HTTP preset accepted an unrelated protocol or port");
+    }
+    AskRequest wrong = request;
+    wrong.ownerAmbiguous = true;
+    Check(RulePresets::Suggest(wrong).empty(), "ambiguous owner received taskhostw HTTP preset");
+    const uint64_t version = store.version();
+    size_t count = 0;
+    const UiLangInfo* languages = UiLangs(count);
+    for (size_t i = 0; i < count; ++i) {
+        SetUiLang(languages[i].lang);
+        const auto localized = RulePresets::Suggest(request);
+        const auto& translated = ChoiceOf(localized, IDS_PRESET_TASK_HOST_HTTP);
+        Check(translated.title == L"taskhostw.exe: HTTP" && translated.rules.size() == 1 &&
+              RulePresets::Apply(store, request, translated.rules) == 0 &&
+              store.Count() == 2 && store.version() == version,
+              "localized taskhostw HTTP preset was lost or duplicated");
+    }
+    SetUiLang(previous);
+}
+
 void TestVisualStudioPresets() {
     const UiLang previous = CurrentUiLang();
     SetUiLang(UiLang::English);
@@ -1494,33 +1776,65 @@ void TestVisualStudioPresets() {
           "Visual Studio HTTPS must offer the secure profile first");
     const auto& secure = ChoiceOf(choices, IDS_PRESET_VISUAL_STUDIO_HTTPS);
     const auto& web = ChoiceOf(choices, IDS_PRESET_VISUAL_STUDIO_WEB);
+    Check(RulePresets::StrictlyCovers(web.rules, secure.rules) &&
+          !RulePresets::StrictlyCovers(secure.rules, web.rules) &&
+          !RulePresets::StrictlyCovers(web.rules, web.rules),
+          "combined web preset coverage was not compared correctly");
+    Rule different = web.rules.front();
+    different.action = RuleAction::Block;
+    Check(!RulePresets::StrictlyCovers({different}, secure.rules),
+          "preset coverage compared a blocking rule with an allow rule");
+    different = web.rules.front();
+    different.appPath = L"C:\\Other\\devenv.exe";
+    Check(!RulePresets::StrictlyCovers({different}, secure.rules),
+          "preset coverage ignored the application scope");
+    different = web.rules.front();
+    different.conds |= CondRemoteAddr;
+    different.remoteAddrs.push_back({Ip(L"203.0.113.1"), -1});
+    Check(!RulePresets::StrictlyCovers({different}, secure.rules),
+          "preset coverage ignored an address restriction");
+    different = secure.rules.front();
+    different.remotePorts.clear();
+    Check(!RulePresets::StrictlyCovers(web.rules, {different}),
+          "an empty port condition was mistaken for a restricted port set");
+    Rule narrowRange = secure.rules.front();
+    narrowRange.remotePorts = {{100, 105}, {106, 110}};
+    Rule wideRange = narrowRange;
+    wideRange.remotePorts = {{99, 111}};
+    Check(RulePresets::StrictlyCovers({wideRange}, {narrowRange}) &&
+          !RulePresets::StrictlyCovers({narrowRange}, {wideRange}),
+          "preset coverage did not compare adjacent port ranges");
     Check(secure.title == L"Visual Studio: HTTPS" && web.title == L"Visual Studio: HTTPS / HTTP" &&
-          secure.rules.size() == 1 && web.rules.size() == 2,
+          secure.rules.size() == 1 && web.rules.size() == 1,
           "Visual Studio presets lost their titles or rule counts");
-    for (const auto& [rule, port] : {
-            std::pair{&secure.rules[0], uint16_t{443}},
-            std::pair{&web.rules[0], uint16_t{443}},
-            std::pair{&web.rules[1], uint16_t{80}}}) {
+    for (const Rule* rule : {&secure.rules[0], &web.rules[0]}) {
         Check(rule->scope == RuleScope::App && rule->appPath == path &&
               rule->action == RuleAction::Allow && rule->proto == Proto::Tcp &&
               rule->dir == Dir::Out && rule->conds == (CondProto | CondDirection | CondRemotePort) &&
-              rule->remotePorts.size() == 1 && rule->remotePorts[0].from == port &&
-              rule->remotePorts[0].to == port && rule->localPorts.empty() &&
+              rule->remotePorts.size() == (rule == &secure.rules[0] ? 1 : 2) &&
+              rule->remotePorts[0].from == 443 && rule->remotePorts[0].to == 443 &&
+              (rule == &secure.rules[0] ||
+                  (rule->remotePorts[1].from == 80 && rule->remotePorts[1].to == 80)) &&
+              rule->localPorts.empty() &&
               rule->remoteAddrs.empty() && rule->localAddrs.empty() && rule->services.empty() &&
               rule->interfaceName.empty() && rule->conditionFlags == 0 &&
               !rule->autoName && !rule->name.empty(),
               "Visual Studio rule lost a condition or pinned a captured endpoint");
-        AskRequest flow = request;
-        flow.key.rport = port;
-        Check(RuleStore::MatchesRule(*rule, flow.ToQuery()),
-              "Visual Studio rule did not match its port");
-        flow.key.remote = Ip(L"203.0.113.33");
-        flow.key.local = Ip(L"10.20.30.40");
-        flow.key.lport = 60000;
-        flow.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
-        flow.conditionFlags.reset();
-        Check(RuleStore::MatchesRule(*rule, flow.ToQuery()),
-              "Visual Studio rule depends on a transient endpoint or interface");
+        for (uint16_t port : {uint16_t{443}, uint16_t{80}}) {
+            AskRequest flow = request;
+            flow.key.rport = port;
+            Check(RuleStore::MatchesRule(*rule, flow.ToQuery()) ==
+                      (port == 443 || rule == &web.rules[0]),
+                  "Visual Studio rule matched the wrong port");
+            flow.key.remote = Ip(L"203.0.113.33");
+            flow.key.local = Ip(L"10.20.30.40");
+            flow.key.lport = 60000;
+            flow.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
+            flow.conditionFlags.reset();
+            Check(RuleStore::MatchesRule(*rule, flow.ToQuery()) ==
+                      (port == 443 || rule == &web.rules[0]),
+                  "Visual Studio rule depends on a transient endpoint or interface");
+        }
     }
     AskRequest changed = request;
     changed.key.rport = 80;
@@ -1552,7 +1866,7 @@ void TestVisualStudioPresets() {
     RuleStore store;
     Check(RulePresets::Apply(store, request, secure.rules) == 1 &&
           RulePresets::Apply(store, request, web.rules) == 1 && store.Count() == 2,
-          "overlapping Visual Studio presets duplicated the HTTPS rule");
+          "overlapping Visual Studio presets were not applied");
     const uint64_t version = store.version();
     size_t count = 0;
     const UiLangInfo* languages = UiLangs(count);
@@ -1561,7 +1875,7 @@ void TestVisualStudioPresets() {
         const auto translated = RulePresets::Suggest(request);
         const auto& localized = ChoiceOf(translated, IDS_PRESET_VISUAL_STUDIO_WEB);
         Check(localized.title == LoadStringRes(IDS_PRESET_VISUAL_STUDIO_WEB) &&
-              localized.rules.size() == 2 &&
+              localized.rules.size() == 1 &&
               RulePresets::Apply(store, request, localized.rules) == 0 &&
               store.Count() == 2 && store.version() == version,
               "localized Visual Studio preset lost its title or duplicated rules");
@@ -1739,7 +2053,7 @@ void TestStoreAppPresets(const wchar_t* path, UINT titleId, uint16_t localPort) 
     Check(choices.size() == 1 && serviceReads == reads,
           "Store application did not get exactly one profile or queried hosted services");
     const auto& preset = ChoiceOf(choices, titleId);
-    Check(preset.rules.size() == 4 && preset.title == LoadStringRes(titleId),
+    Check(preset.rules.size() == 3 && preset.title == LoadStringRes(titleId),
           "Store application profile lost its web rules or localized title");
     for (const Rule& rule : preset.rules) {
         Check(rule.scope == RuleScope::App && rule.appPath == request.appPath &&
@@ -1747,19 +2061,20 @@ void TestStoreAppPresets(const wchar_t* path, UINT titleId, uint16_t localPort) 
               !(rule.conds & CondService) && rule.services.empty() &&
               !rule.autoName && rule.name.find(preset.title) != std::wstring::npos,
               "Store application rule lost its application scope or got a service condition");
-        Check(rule.remotePorts.size() == 1 && rule.localPorts.empty() && rule.localAddrs.empty() &&
+        Check(!rule.remotePorts.empty() && rule.localPorts.empty() && rule.localAddrs.empty() &&
               !(rule.conds & (CondLocalPort | CondLocalAddr)),
               "Store application rule pinned the captured local endpoint");
         const uint16_t port = rule.remotePorts.front().from;
         Check(rule.remotePorts.front().to == port, "Store application rule widened the port range");
         if (port == 53) {
-            Check((rule.proto == Proto::Tcp || rule.proto == Proto::Udp) &&
+            Check(rule.remotePorts.size() == 1 && (rule.proto == Proto::Tcp || rule.proto == Proto::Udp) &&
                   (rule.conds & CondRemoteAddr) && rule.remoteAddrs.size() == 2 &&
                   rule.remoteAddrs[0].macro == AddrMacro::DnsServers &&
                   rule.remoteAddrs[1].macro == AddrMacro::MyComputer,
                   "Store application DNS lost its resolver restriction");
         } else {
-            Check(rule.proto == Proto::Tcp && (port == 443 || port == 80) &&
+            Check(rule.proto == Proto::Tcp && port == 443 && rule.remotePorts.size() == 2 &&
+                  rule.remotePorts[1].from == 80 && rule.remotePorts[1].to == 80 &&
                   !(rule.conds & CondRemoteAddr) && rule.remoteAddrs.empty(),
                   "Store application web rule pinned a server or allowed an unrelated port");
         }
@@ -1808,7 +2123,7 @@ void TestStoreAppPresets(const wchar_t* path, UINT titleId, uint16_t localPort) 
 
     RuleStore store;
     Check(RulePresets::Apply(store, request, {preset.rules.front()}) == 1 &&
-          RulePresets::Apply(store, request, preset.rules) == 3 && store.Count() == 4,
+          RulePresets::Apply(store, request, preset.rules) == 2 && store.Count() == 3,
           "Store application profile duplicated an existing rule");
     const uint64_t version = store.version();
     Check(RulePresets::Apply(store, request, preset.rules) == 0 && store.version() == version,
@@ -1822,8 +2137,8 @@ void TestStoreAppPresets(const wchar_t* path, UINT titleId, uint16_t localPort) 
     AskRequest relocated = request;
     relocated.appPath = L"D:\\Apps\\" + request.appName;
     const auto separate = RulePresets::Suggest(relocated);
-    Check(RulePresets::Apply(store, relocated, ChoiceOf(separate, titleId).rules) == 4 &&
-          store.Count() == 8, "Store application profile did not keep installation paths separate");
+    Check(RulePresets::Apply(store, relocated, ChoiceOf(separate, titleId).rules) == 3 &&
+          store.Count() == 6, "Store application profile did not keep installation paths separate");
 }
 
 void TestTorrentPresets() {
@@ -1944,7 +2259,7 @@ void TestAdditionalApplicationPresets() {
     const auto browserChoices = RulePresets::Suggest(Request(chrome));
     Check(browserChoices.size() == 2 &&
           ChoiceOf(browserChoices, IDS_PRESET_BROWSER_HTTPS).rules.size() == 4 &&
-          ChoiceOf(browserChoices, IDS_PRESET_BROWSER_WEB).rules.size() == 5,
+          ChoiceOf(browserChoices, IDS_PRESET_BROWSER_WEB).rules.size() == 4,
           "additional Chrome profiles changed the existing browser permissions");
 
     struct TestCase {
@@ -2208,7 +2523,7 @@ void TestCopilotAppPreset() {
     AskRequest request = Request(path);
     const auto choices = RulePresets::Suggest(request);
     const auto& preset = ChoiceOf(choices, IDS_PRESET_COPILOT_APP);
-    Check(preset.rules.size() == 7, "Copilot preset did not contain the seven captured rules");
+    Check(preset.rules.size() == 6, "Copilot preset lost its combined or captured rules");
     for (const Rule& rule : preset.rules) {
         Check(rule.scope == RuleScope::App && rule.appPath == path && rule.action == RuleAction::Allow &&
               rule.services.empty() && !rule.autoName,
@@ -2227,30 +2542,29 @@ void TestCopilotAppPreset() {
           portIs(dns.remotePorts, 53) && dns.localPorts.empty() && dns.localAddrs.empty() &&
           dns.remoteAddrs.size() == 1 && dns.remoteAddrs.front().macro == AddrMacro::DnsServers,
           "Copilot DNS was not restricted to configured servers and UDP/53");
-    for (size_t i : {size_t{1}, size_t{2}}) {
+    const Rule& mdnsOut = preset.rules[1];
+    Check(mdnsOut.proto == Proto::Udp && mdnsOut.dir == Dir::Out &&
+          mdnsOut.conds == (CondProto | CondDirection | CondRemoteAddr | CondRemotePort | CondLocalPort) &&
+          portIs(mdnsOut.remotePorts, 5353) && portIs(mdnsOut.localPorts, 5353) &&
+          mdnsOut.remoteAddrs.size() == 2 && mdnsOut.remoteAddrs[0].addr == Ip(L"224.0.0.251") &&
+          mdnsOut.remoteAddrs[1].addr == Ip(L"ff02::fb") && mdnsOut.localAddrs.empty(),
+          "Copilot outgoing mDNS lost its address or port restrictions");
+    for (size_t i : {size_t{2}, size_t{5}}) {
         const Rule& rule = preset.rules[i];
-        Check(rule.proto == Proto::Udp && rule.dir == Dir::Out &&
-              rule.conds == (CondProto | CondDirection | CondRemoteAddr | CondRemotePort | CondLocalPort) &&
-              portIs(rule.remotePorts, 5353) && portIs(rule.localPorts, 5353) &&
-              addressIs(rule.remoteAddrs, i == 1 ? L"224.0.0.251" : L"ff02::fb") &&
-              rule.localAddrs.empty(), "Copilot outgoing mDNS lost its address or port restrictions");
-    }
-    for (size_t i : {size_t{3}, size_t{6}}) {
-        const Rule& rule = preset.rules[i];
-        Check(rule.proto == (i == 3 ? Proto::Tcp : Proto::Udp) && rule.dir == Dir::Out &&
+        Check(rule.proto == (i == 2 ? Proto::Tcp : Proto::Udp) && rule.dir == Dir::Out &&
               rule.conds == (CondProto | CondDirection | CondRemotePort) &&
               portIs(rule.remotePorts, 443) && rule.localPorts.empty() &&
               rule.localAddrs.empty() && rule.remoteAddrs.empty(),
               "Copilot HTTPS or QUIC pinned an address or allowed another port");
     }
-    for (size_t i : {size_t{4}, size_t{5}}) {
+    for (size_t i : {size_t{3}, size_t{4}}) {
         const Rule& rule = preset.rules[i];
         Check(rule.proto == Proto::Udp && rule.dir == Dir::In &&
               rule.conds == (CondProto | CondDirection | CondLocalAddr | CondLocalPort |
-                             (i == 5 ? CondRemotePort : 0)) &&
+                             (i == 4 ? CondRemotePort : 0)) &&
               portIs(rule.localPorts, 5353) &&
-              (i == 5 ? portIs(rule.remotePorts, 5353) : rule.remotePorts.empty()) &&
-              addressIs(rule.localAddrs, i == 4 ? L"224.0.0.251" : L"ff02::fb") &&
+              (i == 4 ? portIs(rule.remotePorts, 5353) : rule.remotePorts.empty()) &&
+              addressIs(rule.localAddrs, i == 3 ? L"224.0.0.251" : L"ff02::fb") &&
               rule.remoteAddrs.empty(), "Copilot incoming mDNS lost its address or port restrictions");
     }
 
@@ -2264,9 +2578,10 @@ void TestCopilotAppPreset() {
         return RuleStore::MatchesRule(preset.rules[index], connection.ToQuery());
     };
     RuleStore store;
-    Check(RulePresets::Apply(store, request, preset.rules) == 7 && store.Count() == 7,
+    Check(RulePresets::Apply(store, request, preset.rules) == 6 && store.Count() == 6,
           "Copilot preset was not applied");
     for (size_t i : {size_t{1}, size_t{2}, size_t{4}, size_t{5}}) {
+        const size_t ruleIndex = i <= 2 ? 1 : i - 1;
         const bool ipv6 = i == 2 || i == 5;
         const bool inbound = i >= 4;
         AskRequest flow = Request(path, Proto::Udp, i == 4 ? 42000 : 5353,
@@ -2277,21 +2592,21 @@ void TestCopilotAppPreset() {
                                       (ipv6 ? L"fe80::1" : L"192.0.2.10"));
         flow.key.lport = 5353;
         RuleAction verdict = RuleAction::Block;
-        Check(offered(flow) && matches(i, flow) && store.MatchVerdict(flow.ToQuery(), verdict) &&
+        Check(offered(flow) && matches(ruleIndex, flow) && store.MatchVerdict(flow.ToQuery(), verdict) &&
               verdict == RuleAction::Allow, "Copilot mDNS did not match the captured flow");
         AskRequest changed = flow;
         changed.key.proto = Proto::Tcp;
-        Check(!offered(changed) && !matches(i, changed), "Copilot mDNS accepted TCP");
+        Check(!offered(changed) && !matches(ruleIndex, changed), "Copilot mDNS accepted TCP");
         changed = flow;
         ++changed.key.lport;
-        Check(!offered(changed) && !matches(i, changed), "Copilot mDNS accepted another local port");
+        Check(!offered(changed) && !matches(ruleIndex, changed), "Copilot mDNS accepted another local port");
         changed = flow;
         if (inbound) changed.key.local = Ip(ipv6 ? L"ff02::fc" : L"224.0.0.250");
         else changed.key.remote = Ip(ipv6 ? L"ff02::fc" : L"224.0.0.250");
-        Check(!offered(changed) && !matches(i, changed), "Copilot mDNS accepted another multicast address");
+        Check(!offered(changed) && !matches(ruleIndex, changed), "Copilot mDNS accepted another multicast address");
         changed = flow;
         ++changed.key.rport;
-        Check(matches(i, changed) == (i == 4) && offered(changed) == (i == 4),
+        Check(matches(ruleIndex, changed) == (i == 4) && offered(changed) == (i == 4),
               "Copilot mDNS changed the captured remote port restriction");
     }
     for (const auto& server : AddrMacros::Resolve(AddrMacro::DnsServers)) {
@@ -2305,10 +2620,10 @@ void TestCopilotAppPreset() {
         Check(matches(0, flow) == configured && offered(flow) == configured,
               "Copilot DNS ignored the configured-server boundary");
     }
-    Check(matches(3, request) && offered(request), "Copilot HTTPS was not offered");
+    Check(matches(2, request) && offered(request), "Copilot HTTPS was not offered");
     AskRequest changed = request;
     changed.key.proto = Proto::Udp;
-    Check(matches(6, changed) && offered(changed), "Copilot QUIC was not offered");
+    Check(matches(5, changed) && offered(changed), "Copilot QUIC was not offered");
     changed.key.rport = 80;
     Check(!offered(changed), "Copilot preset allowed an unrelated UDP port");
     changed = request;
@@ -2316,15 +2631,14 @@ void TestCopilotAppPreset() {
     Check(!offered(changed), "Copilot preset allowed HTTP");
     changed = request;
     changed.appPath = L"C:\\Program Files\\WindowsApps\\Microsoft.Copilot_2.0.0.0_x64__8wekyb3d8bbwe\\COPILOTAPP.EXE";
-    Check(offered(changed) && !matches(3, changed), "Copilot preset lost version independence or exact rule path");
+    Check(offered(changed) && !matches(2, changed), "Copilot preset lost version independence or exact rule path");
     changed.appPath = L"C:\\Apps\\M365Copilot.exe";
     Check(!offered(changed), "CopilotApp preset matched a different executable");
     changed = request;
     changed.ownerAmbiguous = true;
     Check(!offered(changed), "ambiguous owner received the Copilot preset");
 
-    const UINT names[] = {IDS_PRESET_RULE_DNS_UDP, IDS_PRESET_RULE_MDNS_OUT_IPV4,
-                          IDS_PRESET_RULE_MDNS_OUT_IPV6, IDS_PRESET_RULE_HTTPS,
+    const UINT names[] = {IDS_PRESET_RULE_DNS_UDP, IDS_PRESET_RULE_MDNS, IDS_PRESET_RULE_HTTPS,
                           IDS_PRESET_RULE_MDNS_IN_IPV4, IDS_PRESET_RULE_MDNS_IN_IPV6,
                           IDS_PRESET_RULE_QUIC};
     const uint64_t version = store.version();
@@ -2336,14 +2650,14 @@ void TestCopilotAppPreset() {
         const auto& localized = ChoiceOf(translated, IDS_PRESET_COPILOT_APP);
         const std::wstring title = LoadStringRes(IDS_PRESET_COPILOT_APP);
         Check(title == L"CopilotApp.exe: DNS / mDNS / HTTPS / QUIC" && localized.title == title &&
-              localized.rules.size() == 7, "Copilot localized title or rule count changed");
+              localized.rules.size() == 6, "Copilot localized title or rule count changed");
         for (size_t j = 0; j < localized.rules.size(); ++j) {
             const std::wstring name = LoadStringRes(names[j]);
             Check(localized.rules[j].name == LoadStringResFmt(IDS_PRESET_RULE_NAME_FMT, title.c_str(), name.c_str()),
                   "Copilot lost a localized rule name");
         }
         Check(RulePresets::Apply(store, request, localized.rules) == 0 &&
-              store.Count() == 7 && store.version() == version,
+              store.Count() == 6 && store.version() == version,
               "localized Copilot preset duplicated a rule");
     }
     SetUiLang(previous);
@@ -2386,14 +2700,14 @@ void TestDiscordAndObsPresets() {
         changed.appPath = std::wstring(L"C:\\Apps\\") + file;
         Check(RulePresets::Suggest(changed).empty(), "Discord HTTP leaked to another edition");
         const auto originalChoices = RulePresets::Suggest(Request(changed.appPath));
-        Check(ChoiceOf(originalChoices, IDS_PRESET_DISCORD).rules.size() == 6,
+        Check(ChoiceOf(originalChoices, IDS_PRESET_DISCORD).rules.size() == 4,
               "Discord HTTP changed another edition's original preset");
     }
     const auto originalChoices = RulePresets::Suggest(Request(discordPath));
     const auto& original = ChoiceOf(originalChoices, IDS_PRESET_DISCORD);
     RuleStore discordStore;
-    Check(original.rules.size() == 6 && RulePresets::Apply(discordStore, discord, original.rules) == 6 &&
-          RulePresets::Apply(discordStore, discord, preset.rules) == 1 && discordStore.Count() == 7,
+    Check(original.rules.size() == 4 && RulePresets::Apply(discordStore, discord, original.rules) == 4 &&
+          RulePresets::Apply(discordStore, discord, preset.rules) == 1 && discordStore.Count() == 5,
           "Discord HTTP preset did not preserve existing rules");
     RuleAction verdict = RuleAction::Block;
     Check(discordStore.MatchVerdict(discord.ToQuery(), verdict) && verdict == RuleAction::Allow,
@@ -2538,7 +2852,7 @@ void TestOneDriveAndYandexDiskPresets() {
     disk.key.lport = 53002;
     const auto diskChoices = RulePresets::Suggest(disk);
     const auto& diskPreset = ChoiceOf(diskChoices, IDS_PRESET_YANDEX_DISK);
-    Check(diskPreset.rules.size() == 3, "Yandex Disk preset must contain loopback, HTTPS and HTTP");
+    Check(diskPreset.rules.size() == 2, "Yandex Disk preset must contain loopback and combined web rules");
     const Rule& loop = diskPreset.rules[0];
     const auto exactLoopback = [](const std::vector<AddrItem>& addresses) {
         return addresses.size() == 1 && addresses[0].macro == AddrMacro::None &&
@@ -2568,16 +2882,17 @@ void TestOneDriveAndYandexDiskPresets() {
     changed.key.proto = Proto::Udp;
     Check(RulePresets::Suggest(changed).empty(), "Yandex Disk preset accepted UDP");
     RuleStore diskStore;
-    Check(RulePresets::Apply(diskStore, disk, diskPreset.rules) == 3, "Yandex Disk preset was not applied");
-    for (size_t i = 1; i < 3; ++i) {
-        const uint16_t port = i == 1 ? 443 : 80;
-        const Rule& web = diskPreset.rules[i];
+    Check(RulePresets::Apply(diskStore, disk, diskPreset.rules) == 2, "Yandex Disk preset was not applied");
+    for (uint16_t port : {uint16_t{443}, uint16_t{80}}) {
+        const Rule& web = diskPreset.rules[1];
         changed = Request(diskPath, Proto::Tcp, port, L"203.0.113.9");
         Check(web.conds == (CondProto | CondDirection | CondRemotePort) && web.proto == Proto::Tcp &&
-              web.dir == Dir::Out && web.remotePorts.size() == 1 && web.remotePorts[0].from == port &&
-              web.remotePorts[0].to == port && web.remoteAddrs.empty() && web.localAddrs.empty() &&
+              web.dir == Dir::Out && web.remotePorts.size() == 2 &&
+              web.remotePorts[0].from == 443 && web.remotePorts[0].to == 443 &&
+              web.remotePorts[1].from == 80 && web.remotePorts[1].to == 80 &&
+              web.remoteAddrs.empty() && web.localAddrs.empty() &&
               web.localPorts.empty() && RuleStore::MatchesRule(web, changed.ToQuery()) &&
-              ChoiceOf(RulePresets::Suggest(changed), IDS_PRESET_YANDEX_DISK).rules.size() == 3,
+              ChoiceOf(RulePresets::Suggest(changed), IDS_PRESET_YANDEX_DISK).rules.size() == 2,
               "Yandex Disk web rule pinned an endpoint or lost its port");
         RuleAction verdict = RuleAction::Block;
         Check(diskStore.MatchVerdict(changed.ToQuery(), verdict) && verdict == RuleAction::Allow,
@@ -2586,7 +2901,7 @@ void TestOneDriveAndYandexDiskPresets() {
     changed = disk;
     changed.appPath = L"C:\\Other\\YANDEXDISK4.EXE";
     Check(!RuleStore::MatchesRule(loop, changed.ToQuery()) &&
-          ChoiceOf(RulePresets::Suggest(changed), IDS_PRESET_YANDEX_DISK).rules.size() == 3,
+          ChoiceOf(RulePresets::Suggest(changed), IDS_PRESET_YANDEX_DISK).rules.size() == 2,
           "Yandex Disk lost installation independence or exact application scope");
     changed.ownerAmbiguous = true;
     Check(RulePresets::Suggest(changed).empty(), "ambiguous owner received the Yandex Disk preset");
@@ -2604,9 +2919,9 @@ void TestOneDriveAndYandexDiskPresets() {
         const std::wstring oneDriveTitle = LoadStringRes(IDS_PRESET_ONEDRIVE_HTTP);
         const std::wstring diskTitle = LoadStringRes(IDS_PRESET_YANDEX_DISK);
         Check(oneDriveChoice.title == oneDriveTitle && diskChoice.title == diskTitle &&
-              oneDriveChoice.rules.size() == 1 && diskChoice.rules.size() == 3,
+              oneDriveChoice.rules.size() == 1 && diskChoice.rules.size() == 2,
               "localized OneDrive or Yandex Disk title or count changed");
-        const UINT names[] = {IDS_PRESET_RULE_LOOPBACK_TCP, IDS_PRESET_RULE_HTTPS, IDS_PRESET_RULE_HTTP};
+        const UINT names[] = {IDS_PRESET_RULE_LOOPBACK_TCP, IDS_PRESET_RULE_HTTPS_HTTP};
         for (size_t j = 0; j < diskChoice.rules.size(); ++j) {
             const std::wstring name = LoadStringRes(names[j]);
             Check(diskChoice.rules[j].name == LoadStringResFmt(IDS_PRESET_RULE_NAME_FMT,
@@ -2628,6 +2943,7 @@ void TestRemoteAccessPresets() {
         uint16_t localPort;
         const wchar_t* remoteAddress;
         const wchar_t* localAddress;
+        std::vector<PortItem> extraRemotePorts;
     };
     struct Flow {
         Proto proto;
@@ -2638,10 +2954,8 @@ void TestRemoteAccessPresets() {
         const wchar_t* localAddress;
     };
     const Expected anyDeskRules[] = {
-        {Proto::Tcp, Dir::Out, 443, 0, nullptr, nullptr},
-        {Proto::Tcp, Dir::Out, 80, 0, nullptr, nullptr},
-        {Proto::Udp, Dir::Out, 53, 0, L"1.1.1.1", nullptr},
-        {Proto::Tcp, Dir::Out, 6568, 0, nullptr, nullptr}
+        {Proto::Tcp, Dir::Out, 443, 0, nullptr, nullptr, {{80, 80}, {6568, 6568}}},
+        {Proto::Udp, Dir::Out, 53, 0, L"1.1.1.1", nullptr}
     };
     const Flow anyDeskFlows[] = {
         {Proto::Tcp, Dir::Out, 443, 41000, L"198.51.100.20", L"192.0.2.10"},
@@ -2649,13 +2963,9 @@ void TestRemoteAccessPresets() {
         {Proto::Udp, Dir::Out, 53, 41002, L"1.1.1.1", L"192.0.2.10"},
         {Proto::Tcp, Dir::Out, 6568, 41003, L"198.51.100.22", L"192.0.2.10"}
     };
-    const UINT anyDeskNames[] = {IDS_PRESET_RULE_HTTPS, IDS_PRESET_RULE_HTTP,
-                                 IDS_PRESET_RULE_DNS_UDP, IDS_PRESET_RULE_ANYDESK_TCP};
+    const UINT anyDeskNames[] = {IDS_PRESET_RULE_WEB_ANYDESK_TCP, IDS_PRESET_RULE_DNS_UDP};
     const Expected rustDeskRules[] = {
-        {Proto::Tcp, Dir::Out, 21116, 0, nullptr, nullptr},
-        {Proto::Tcp, Dir::Out, 80, 0, nullptr, nullptr},
-        {Proto::Tcp, Dir::Out, 443, 0, nullptr, nullptr},
-        {Proto::Tcp, Dir::Out, 21115, 0, nullptr, nullptr},
+        {Proto::Tcp, Dir::Out, 443, 0, nullptr, nullptr, {{80, 80}, {21115, 21116}}},
         {Proto::Udp, Dir::Out, 21116, 0, nullptr, nullptr}
     };
     const Flow rustDeskFlows[] = {
@@ -2665,9 +2975,7 @@ void TestRemoteAccessPresets() {
         {Proto::Tcp, Dir::Out, 21115, 41007, L"198.51.100.23", L"192.0.2.10"},
         {Proto::Udp, Dir::Out, 21116, 41008, L"198.51.100.24", L"192.0.2.10"}
     };
-    const UINT rustDeskNames[] = {IDS_PRESET_RULE_RUSTDESK_TCP_21116, IDS_PRESET_RULE_HTTP,
-                                  IDS_PRESET_RULE_HTTPS, IDS_PRESET_RULE_RUSTDESK_TCP_21115,
-                                  IDS_PRESET_RULE_RUSTDESK_UDP_21116};
+    const UINT rustDeskNames[] = {IDS_PRESET_RULE_WEB_RUSTDESK_TCP, IDS_PRESET_RULE_RUSTDESK_UDP_21116};
     const Expected clientRules[] = {
         {Proto::Tcp, Dir::Out, 0, 0, L"127.0.0.1", L"127.0.0.1"},
         {Proto::Tcp, Dir::Out, 443, 0, nullptr, nullptr}
@@ -2678,10 +2986,8 @@ void TestRemoteAccessPresets() {
     };
     const UINT clientNames[] = {IDS_PRESET_RULE_LOOPBACK_TCP, IDS_PRESET_RULE_HTTPS};
     const Expected serviceRules[] = {
-        {Proto::Tcp, Dir::Out, 80, 0, nullptr, nullptr},
-        {Proto::Tcp, Dir::Out, 443, 0, nullptr, nullptr},
+        {Proto::Tcp, Dir::Out, 443, 0, nullptr, nullptr, {{80, 80}, {5938, 5938}}},
         {Proto::Tcp, Dir::In, 0, 0, L"127.0.0.1", L"127.0.0.1"},
-        {Proto::Tcp, Dir::Out, 5938, 0, nullptr, nullptr},
         {Proto::Udp, Dir::In, 5353, 5353, nullptr, L"224.0.0.251"},
         {Proto::Udp, Dir::Out, 5353, 5353, L"ff02::fb", L"::1"},
         {Proto::Udp, Dir::Out, 5353, 5353, L"224.0.0.251", nullptr}
@@ -2695,8 +3001,7 @@ void TestRemoteAccessPresets() {
         {Proto::Udp, Dir::Out, 5353, 5353, L"ff02::fb", L"::1"},
         {Proto::Udp, Dir::Out, 5353, 5353, L"224.0.0.251", L"192.168.219.24"}
     };
-    const UINT serviceNames[] = {IDS_PRESET_RULE_HTTP, IDS_PRESET_RULE_HTTPS,
-                                 IDS_PRESET_RULE_LOOPBACK_TCP, IDS_PRESET_RULE_TEAMVIEWER_TCP,
+    const UINT serviceNames[] = {IDS_PRESET_RULE_WEB_TEAMVIEWER_TCP, IDS_PRESET_RULE_LOOPBACK_TCP,
                                  IDS_PRESET_RULE_MDNS_IN_IPV4, IDS_PRESET_RULE_MDNS_OUT_IPV6,
                                  IDS_PRESET_RULE_MDNS_OUT_IPV4};
     const Expected vmwareAuthdRules[] = {
@@ -2739,7 +3044,7 @@ void TestRemoteAccessPresets() {
     const auto verify = [&](const std::wstring& path, UINT id, const wchar_t* service,
                             std::span<const Expected> expected, std::span<const Flow> flows,
                             std::span<const UINT> names) {
-        Check(expected.size() == flows.size() && expected.size() == names.size(), "invalid remote-access test");
+        Check(!flows.empty() && expected.size() == names.size(), "invalid remote-access test");
         AskRequest request = makeFlow(path, flows.front());
         if (service) SetServices(request.pid, {service});
         else SetServices(request.pid, {});
@@ -2769,19 +3074,35 @@ void TestRemoteAccessPresets() {
             const uint32_t conds = CondProto | CondDirection | (service ? CondService : 0) |
                 (spec.remotePort ? CondRemotePort : 0) | (spec.localPort ? CondLocalPort : 0) |
                 (spec.remoteAddress ? CondRemoteAddr : 0) | (spec.localAddress ? CondLocalAddr : 0);
+            const auto remotePortsMatch = [&] {
+                if (!portIs(rule.remotePorts, spec.remotePort) && spec.extraRemotePorts.empty()) return false;
+                if (spec.extraRemotePorts.empty()) return true;
+                if (!spec.remotePort || rule.remotePorts.size() != 1 + spec.extraRemotePorts.size() ||
+                    rule.remotePorts[0].from != spec.remotePort || rule.remotePorts[0].to != spec.remotePort)
+                    return false;
+                for (size_t j = 0; j < spec.extraRemotePorts.size(); ++j)
+                    if (rule.remotePorts[j + 1].from != spec.extraRemotePorts[j].from ||
+                        rule.remotePorts[j + 1].to != spec.extraRemotePorts[j].to) return false;
+                return true;
+            };
             Check(rule.scope == RuleScope::App && rule.appPath == path && rule.action == RuleAction::Allow &&
                   rule.proto == spec.proto && rule.dir == spec.dir && rule.conds == conds && !rule.autoName &&
-                  portIs(rule.remotePorts, spec.remotePort) && portIs(rule.localPorts, spec.localPort) &&
+                  remotePortsMatch() && portIs(rule.localPorts, spec.localPort) &&
                   addressIs(rule.remoteAddrs, spec.remoteAddress) && addressIs(rule.localAddrs, spec.localAddress) &&
                   (service ? rule.services.size() == 1 && rule.services[0].name == service : rule.services.empty()),
                   "remote-access rule lost or gained a condition");
-            AskRequest flow = makeFlow(path, flows[i]);
+        }
+        for (const Flow& sample : flows) {
+            AskRequest flow = makeFlow(path, sample);
             RuleAction verdict = RuleAction::Block;
-            Check(offered(flow, id) && RuleStore::MatchesRule(rule, flow.ToQuery()) &&
+            const auto matched = std::find_if(preset.rules.begin(), preset.rules.end(), [&](const Rule& rule) {
+                return RuleStore::MatchesRule(rule, flow.ToQuery());
+            });
+            Check(offered(flow, id) && matched != preset.rules.end() &&
                   store.MatchVerdict(flow.ToQuery(), verdict) && verdict == RuleAction::Allow,
                   "remote-access rule did not cover its captured connection");
             flow.dir = flow.dir == Dir::In ? Dir::Out : Dir::In;
-            Check(RuleStore::MatchesRule(rule, flow.ToQuery()),
+            Check(RuleStore::MatchesRule(*matched, flow.ToQuery()),
                   "remote-access rule changed existing effective direction semantics");
         }
         AskRequest changed = request;
@@ -2842,7 +3163,7 @@ void TestRemoteAccessPresets() {
 
     AskRequest dns = makeFlow(anyDeskPath, anyDeskFlows[2]);
     const auto dnsChoices = RulePresets::Suggest(dns);
-    const Rule& dnsRule = ChoiceOf(dnsChoices, IDS_PRESET_ANYDESK).rules[2];
+    const Rule& dnsRule = ChoiceOf(dnsChoices, IDS_PRESET_ANYDESK).rules[1];
     AskRequest changed = dns;
     changed.key.local = Ip(L"192.0.2.55");
     changed.key.lport = 60000;
@@ -2904,7 +3225,7 @@ void TestRemoteAccessPresets() {
     changed = service;
     changed.key.lport = 10000;
     changed.key.rport = 10001;
-    Check(RuleStore::MatchesRule(servicePreset.rules[2], changed.ToQuery()),
+    Check(RuleStore::MatchesRule(servicePreset.rules[1], changed.ToQuery()),
           "TeamViewer service loopback pinned ports");
     for (const wchar_t* address : {L"127.0.0.2", L"::1", L"192.0.2.10"}) {
         changed = service;
@@ -2922,7 +3243,7 @@ void TestRemoteAccessPresets() {
           "updated TeamViewer service preset duplicated existing rules or missed IPv4 mDNS");
     for (size_t i : {size_t{4}, size_t{5}, size_t{6}}) {
         AskRequest mdns = makeFlow(servicePath, serviceFlows[i]);
-        Check(RuleStore::MatchesRule(servicePreset.rules[i], mdns.ToQuery()), "service mDNS flow did not match");
+        Check(RuleStore::MatchesRule(servicePreset.rules[i - 2], mdns.ToQuery()), "service mDNS flow did not match");
         changed = mdns;
         ++changed.key.lport;
         Check(!offered(changed, IDS_PRESET_TEAMVIEWER_SERVICE), "service mDNS accepted another local port");
@@ -2996,85 +3317,86 @@ void TestCapturedConnectionPresets() {
         UINT titleId;
         const wchar_t* service;
         size_t count;
+        bool combinedWeb;
         RuleAction action;
     };
     const std::wstring svchost = SystemDirFile(L"svchost.exe");
     const Profile profiles[] = {
-        {L"C:\\Program Files\\WSL\\wslservice.exe", IDS_PRESET_WSL_SERVICE, L"WSLService", 2, RuleAction::Allow},
-        {SystemDirFile(L"taskhostw.exe"), IDS_PRESET_TASK_HOST, nullptr, 1, RuleAction::Allow},
-        {SystemDirFile(L"AppHostRegistrationVerifier.exe"), IDS_PRESET_APPHOST_VERIFIER, nullptr, 2, RuleAction::Allow},
-        {SystemDirFile(L"msiexec.exe"), IDS_PRESET_MSI_INSTALLER, L"msiserver", 1, RuleAction::Allow},
+        {L"C:\\Program Files\\WSL\\wslservice.exe", IDS_PRESET_WSL_SERVICE, L"WSLService", 1, true, RuleAction::Allow},
+        {SystemDirFile(L"taskhostw.exe"), IDS_PRESET_TASK_HOST, nullptr, 1, false, RuleAction::Allow},
+        {SystemDirFile(L"AppHostRegistrationVerifier.exe"), IDS_PRESET_APPHOST_VERIFIER, nullptr, 1, true, RuleAction::Allow},
+        {SystemDirFile(L"msiexec.exe"), IDS_PRESET_MSI_INSTALLER, L"msiserver", 1, false, RuleAction::Allow},
         {L"C:\\Program Files\\Microsoft OneDrive\\26.189.0928.0009\\OneDrive.Sync.Service.exe",
-            IDS_PRESET_ONEDRIVE_SYNC, nullptr, 1, RuleAction::Allow},
+            IDS_PRESET_ONEDRIVE_SYNC, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Program Files\\Microsoft OneDrive\\26.189.0928.0009\\OneDriveUpdaterService.exe",
-            IDS_PRESET_ONEDRIVE_UPDATER, L"OneDrive Updater Service", 2, RuleAction::Allow},
-        {SystemDirFile(L"backgroundTaskHost.exe"), IDS_PRESET_BACKGROUND_TASK_HOST, nullptr, 2, RuleAction::Allow},
-        {SystemDirFile(L"WWAHost.exe"), IDS_PRESET_WWA_HOST, nullptr, 2, RuleAction::Allow},
-        {SystemDirFile(L"BackgroundTransferHost.exe"), IDS_PRESET_BACKGROUND_TRANSFER, nullptr, 2, RuleAction::Allow},
-        {L"C:\\Windows\\explorer.exe", IDS_PRESET_EXPLORER, nullptr, 2, RuleAction::Allow},
+            IDS_PRESET_ONEDRIVE_UPDATER, L"OneDrive Updater Service", 1, true, RuleAction::Allow},
+        {SystemDirFile(L"backgroundTaskHost.exe"), IDS_PRESET_BACKGROUND_TASK_HOST, nullptr, 1, true, RuleAction::Allow},
+        {SystemDirFile(L"WWAHost.exe"), IDS_PRESET_WWA_HOST, nullptr, 1, true, RuleAction::Allow},
+        {SystemDirFile(L"BackgroundTransferHost.exe"), IDS_PRESET_BACKGROUND_TRANSFER, nullptr, 1, true, RuleAction::Allow},
+        {L"C:\\Windows\\explorer.exe", IDS_PRESET_EXPLORER, nullptr, 1, true, RuleAction::Allow},
         {L"C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.26100.4-0\\MpCmdRun.exe",
-            IDS_PRESET_DEFENDER_COMMAND, nullptr, 1, RuleAction::Allow},
-        {L"C:\\Windows\\UUS\\amd64\\MoUsoCoreWorker.exe", IDS_PRESET_MOUSO_CORE_WORKER, nullptr, 1, RuleAction::Allow},
-        {L"C:\\Program Files\\Mozilla Firefox\\pingsender.exe", IDS_PRESET_PING_SENDER, nullptr, 1, RuleAction::Allow},
-        {L"C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe", IDS_PRESET_SYSTEM_SETTINGS, nullptr, 1, RuleAction::Allow},
-        {SystemDirFile(L"UCConfigTask.exe"), IDS_PRESET_UC_CONFIG_TASK, nullptr, 1, RuleAction::Allow},
+            IDS_PRESET_DEFENDER_COMMAND, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Windows\\UUS\\amd64\\MoUsoCoreWorker.exe", IDS_PRESET_MOUSO_CORE_WORKER, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Program Files\\Mozilla Firefox\\pingsender.exe", IDS_PRESET_PING_SENDER, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe", IDS_PRESET_SYSTEM_SETTINGS, nullptr, 1, false, RuleAction::Allow},
+        {SystemDirFile(L"UCConfigTask.exe"), IDS_PRESET_UC_CONFIG_TASK, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.GamingServices_38.117.27001.0_x64__8wekyb3d8bbwe\\gamingservices.exe",
-            IDS_PRESET_GAMING_SERVICES, L"GamingServices", 1, RuleAction::Allow},
+            IDS_PRESET_GAMING_SERVICES, L"GamingServices", 1, false, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.MicrosoftOfficeHub_19.2611.32041.0_x64__8wekyb3d8bbwe\\M365Copilot.exe",
-            IDS_PRESET_M365_COPILOT, nullptr, 1, RuleAction::Allow},
+            IDS_PRESET_M365_COPILOT, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.BingNews_4.56.21872.0_x64__8wekyb3d8bbwe\\Microsoft.Msn.News.exe",
-            IDS_PRESET_MSN_NEWS, nullptr, 2, RuleAction::Allow},
+            IDS_PRESET_MSN_NEWS, nullptr, 1, true, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.BingWeather_4.54.63045.0_x64__8wekyb3d8bbwe\\Microsoft.Msn.Weather.exe",
-            IDS_PRESET_MSN_WEATHER, nullptr, 2, RuleAction::Allow},
+            IDS_PRESET_MSN_WEATHER, nullptr, 1, true, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.MicrosoftStickyNotes_6.1.4.0_x64__8wekyb3d8bbwe\\Microsoft.Notes.exe",
-            IDS_PRESET_MICROSOFT_NOTES, nullptr, 2, RuleAction::Allow},
+            IDS_PRESET_MICROSOFT_NOTES, nullptr, 1, true, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.26092.119.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe",
-            IDS_PRESET_PHONE_EXPERIENCE, nullptr, 1, RuleAction::Allow},
-        {SystemDirFile(L"smartscreen.exe"), IDS_PRESET_SMARTSCREEN, nullptr, 1, RuleAction::Allow},
+            IDS_PRESET_PHONE_EXPERIENCE, nullptr, 1, false, RuleAction::Allow},
+        {SystemDirFile(L"smartscreen.exe"), IDS_PRESET_SMARTSCREEN, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\WebExperienceHostApp.exe",
-            IDS_PRESET_WEB_EXPERIENCE, nullptr, 2, RuleAction::Allow},
+            IDS_PRESET_WEB_EXPERIENCE, nullptr, 1, true, RuleAction::Allow},
         {L"C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\WindowsBackupClient.exe",
-            IDS_PRESET_WINDOWS_BACKUP, nullptr, 1, RuleAction::Allow},
+            IDS_PRESET_WINDOWS_BACKUP, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.GamingApp_2611.1001.10.0_x64__8wekyb3d8bbwe\\XboxPcApp.exe",
-            IDS_PRESET_XBOX_PC_APP, nullptr, 2, RuleAction::Allow},
+            IDS_PRESET_XBOX_PC_APP, nullptr, 1, true, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.GamingApp_2611.1001.10.0_x64__8wekyb3d8bbwe\\XboxPcAppFT.exe",
-            IDS_PRESET_XBOX_PC_APP_FT, nullptr, 1, RuleAction::Allow},
-        {svchost, IDS_PRESET_WAAS_MEDIC, L"WaaSMedicSvc", 1, RuleAction::Allow},
-        {SystemDirFile(L"WUDFHost.exe"), IDS_PRESET_WUDF_HOST, nullptr, 1, RuleAction::Allow},
-        {L"C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE", IDS_PRESET_EXCEL, nullptr, 1, RuleAction::Allow},
-        {L"C:\\Program Files\\Microsoft Office\\root\\Office16\\MSACCESS.EXE", IDS_PRESET_MSACCESS, nullptr, 1, RuleAction::Allow},
+            IDS_PRESET_XBOX_PC_APP_FT, nullptr, 1, false, RuleAction::Allow},
+        {svchost, IDS_PRESET_WAAS_MEDIC, L"WaaSMedicSvc", 1, false, RuleAction::Allow},
+        {SystemDirFile(L"WUDFHost.exe"), IDS_PRESET_WUDF_HOST, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE", IDS_PRESET_EXCEL, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Program Files\\Microsoft Office\\root\\Office16\\MSACCESS.EXE", IDS_PRESET_MSACCESS, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.MicrosoftWhiteboard_55.20811.580.0_x64__8wekyb3d8bbwe\\MicrosoftWhiteboard\\MicrosoftWhiteboard.exe",
-            IDS_PRESET_WHITEBOARD, nullptr, 1, RuleAction::Allow},
+            IDS_PRESET_WHITEBOARD, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\microsoft.windowscommunicationsapps_16005.14326.22342.0_x64__8wekyb3d8bbwe\\HxOutlook.exe",
-            IDS_PRESET_HX_OUTLOOK, nullptr, 2, RuleAction::Allow},
+            IDS_PRESET_HX_OUTLOOK, nullptr, 1, true, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.Windows.Photos_2025.11100.29001.0_x64__8wekyb3d8bbwe\\Photos.exe",
-            IDS_PRESET_PHOTOS, nullptr, 1, RuleAction::Allow},
+            IDS_PRESET_PHOTOS, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\microsoft.windowscommunicationsapps_16005.14326.22342.0_x64__8wekyb3d8bbwe\\HxCalendarAppImm.exe",
-            IDS_PRESET_HX_CALENDAR, nullptr, 1, RuleAction::Allow},
+            IDS_PRESET_HX_CALENDAR, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Windows\\SystemApps\\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\\StartMenuExperienceHost.exe",
-            IDS_PRESET_START_MENU, nullptr, 2, RuleAction::Allow},
+            IDS_PRESET_START_MENU, nullptr, 1, true, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.OutlookForWindows_1.2025.1027.200_x64__8wekyb3d8bbwe\\xpdAgent.exe",
-            IDS_PRESET_XPD_AGENT, nullptr, 1, RuleAction::Allow},
+            IDS_PRESET_XPD_AGENT, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.Todos_2.178.8571.0_x64__8wekyb3d8bbwe\\Todo.exe",
-            IDS_PRESET_TODO, nullptr, 2, RuleAction::Allow},
-        {L"C:\\Apps\\Clipchamp.exe", IDS_PRESET_CLIPCHAMP, nullptr, 1, RuleAction::Allow},
-        {L"C:\\Apps\\GameBar.exe", IDS_PRESET_GAME_BAR, nullptr, 2, RuleAction::Allow},
-        {L"C:\\Apps\\IntelGraphicsSoftware.exe", IDS_PRESET_INTEL_GRAPHICS, nullptr, 1, RuleAction::Allow},
-        {L"C:\\Apps\\ipfsvc.exe", IDS_PRESET_INTEL_IPF, L"dttui", 1, RuleAction::Allow},
-        {L"C:\\Apps\\ipfsvc.exe", IDS_PRESET_INTEL_IPF, L"ipfui", 1, RuleAction::Allow},
-        {L"C:\\Apps\\MicrosoftEdgeUpdate.exe", IDS_PRESET_EDGE_UPDATE, nullptr, 1, RuleAction::Allow},
-        {L"C:\\Apps\\MpDefenderCoreService.exe", IDS_PRESET_DEFENDER_CORE, L"MDCoreSvc", 2, RuleAction::Allow},
-        {L"C:\\Apps\\ms-teamsupdate.exe", IDS_PRESET_TEAMS_UPDATE, nullptr, 1, RuleAction::Allow},
-        {L"C:\\Apps\\msedgewebview2.exe", IDS_PRESET_WEBVIEW2, nullptr, 3, RuleAction::Allow},
-        {L"C:\\Apps\\OfficeC2RClient.exe", IDS_PRESET_OFFICE_CLIENT, nullptr, 1, RuleAction::Allow},
-        {L"C:\\Apps\\OfficeClickToRun.exe", IDS_PRESET_OFFICE_SERVICE, L"ClickToRunSvc", 2, RuleAction::Allow},
-        {L"C:\\Apps\\ONENOTE.EXE", IDS_PRESET_ONENOTE, nullptr, 1, RuleAction::Allow},
-        {L"C:\\Apps\\SearchHost.exe", IDS_PRESET_SEARCH_HOST, nullptr, 1, RuleAction::Allow},
-        {L"C:\\Apps\\Solitaire.exe", IDS_PRESET_SOLITAIRE, nullptr, 2, RuleAction::Allow},
-        {svchost, IDS_PRESET_PUSH_SERVICE, L"WpnService", 1, RuleAction::Allow},
-        {svchost, IDS_PRESET_LICENSE_MANAGER, L"LicenseManager", 1, RuleAction::Allow},
-        {svchost, IDS_PRESET_MICROSOFT_ACCOUNT, L"wlidsvc", 2, RuleAction::Allow},
-        {svchost, IDS_PRESET_DIAGTRACK_BLOCK, L"DiagTrack", 1, RuleAction::Block}
+            IDS_PRESET_TODO, nullptr, 1, true, RuleAction::Allow},
+        {L"C:\\Apps\\Clipchamp.exe", IDS_PRESET_CLIPCHAMP, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Apps\\GameBar.exe", IDS_PRESET_GAME_BAR, nullptr, 1, true, RuleAction::Allow},
+        {L"C:\\Apps\\IntelGraphicsSoftware.exe", IDS_PRESET_INTEL_GRAPHICS, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Apps\\ipfsvc.exe", IDS_PRESET_INTEL_IPF, L"dttui", 1, false, RuleAction::Allow},
+        {L"C:\\Apps\\ipfsvc.exe", IDS_PRESET_INTEL_IPF, L"ipfui", 1, false, RuleAction::Allow},
+        {L"C:\\Apps\\MicrosoftEdgeUpdate.exe", IDS_PRESET_EDGE_UPDATE, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Apps\\MpDefenderCoreService.exe", IDS_PRESET_DEFENDER_CORE, L"MDCoreSvc", 1, true, RuleAction::Allow},
+        {L"C:\\Apps\\ms-teamsupdate.exe", IDS_PRESET_TEAMS_UPDATE, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Apps\\msedgewebview2.exe", IDS_PRESET_WEBVIEW2, nullptr, 3, false, RuleAction::Allow},
+        {L"C:\\Apps\\OfficeC2RClient.exe", IDS_PRESET_OFFICE_CLIENT, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Apps\\OfficeClickToRun.exe", IDS_PRESET_OFFICE_SERVICE, L"ClickToRunSvc", 1, true, RuleAction::Allow},
+        {L"C:\\Apps\\ONENOTE.EXE", IDS_PRESET_ONENOTE, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Apps\\SearchHost.exe", IDS_PRESET_SEARCH_HOST, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Apps\\Solitaire.exe", IDS_PRESET_SOLITAIRE, nullptr, 1, true, RuleAction::Allow},
+        {svchost, IDS_PRESET_PUSH_SERVICE, L"WpnService", 1, false, RuleAction::Allow},
+        {svchost, IDS_PRESET_LICENSE_MANAGER, L"LicenseManager", 1, false, RuleAction::Allow},
+        {svchost, IDS_PRESET_MICROSOFT_ACCOUNT, L"wlidsvc", 1, true, RuleAction::Allow},
+        {svchost, IDS_PRESET_DIAGTRACK_BLOCK, L"DiagTrack", 1, false, RuleAction::Block}
     };
     const UiLang previous = CurrentUiLang();
     SetUiLang(UiLang::English);
@@ -3125,8 +3447,11 @@ void TestCapturedConnectionPresets() {
                     Check((*addresses)[0].addr == Ip(L"127.0.0.0") && (*addresses)[0].prefix == 8 &&
                           (*addresses)[1].addr == Ip(L"::1"), "loopback preset addresses were widened");
             } else {
-                Check(rule.remotePorts.size() == 1 && rule.remotePorts[0].from == port &&
-                      rule.remotePorts[0].to == port && rule.localAddrs.empty(),
+                Check(rule.remotePorts.size() == (profile.combinedWeb ? 2 : 1) &&
+                      rule.remotePorts[0].from == port && rule.remotePorts[0].to == port &&
+                      (!profile.combinedWeb || (rule.remotePorts[1].from == 80 &&
+                                                rule.remotePorts[1].to == 80)) &&
+                      rule.localAddrs.empty(),
                       "captured web rule pinned an endpoint or lost its port");
                 Check(dns ? rule.remoteAddrs.size() == 1 &&
                             rule.remoteAddrs.front().macro == AddrMacro::DnsServers
@@ -3240,10 +3565,10 @@ void TestCapturedConnectionPresets() {
                       "HTTP-only installer preset accepted another protocol or port");
             }
         }
-        if (profile.count == 2) {
+        if (profile.combinedWeb) {
             changed = request;
             changed.key.rport = 80;
-            Check(offered(changed) && RuleStore::MatchesRule(preset.rules[1], changed.ToQuery()),
+            Check(offered(changed) && RuleStore::MatchesRule(preset.rules[0], changed.ToQuery()),
                   "captured web preset did not cover HTTP");
             for (auto [proto, port] : {
                 std::pair{Proto::Tcp, uint16_t{465}}, std::pair{Proto::Udp, uint16_t{80}},
@@ -3291,6 +3616,7 @@ void TestCapturedConnectionPresets() {
             profile.titleId == IDS_PRESET_HX_OUTLOOK || profile.titleId == IDS_PRESET_MICROSOFT_ACCOUNT) {
             RuleStore existingStore;
             Rule oldHttps = preset.rules.front();
+            oldHttps.remotePorts.resize(1);
             oldHttps.name = L"Previous HTTPS-only preset";
             Check(RulePresets::Apply(existingStore, request, {oldHttps}) == 1,
                   "could not seed the previous HTTPS preset");
@@ -3315,7 +3641,7 @@ void TestCapturedConnectionPresets() {
         RuleAction verdict = profile.action == RuleAction::Allow ? RuleAction::Block : RuleAction::Allow;
         Check(store.MatchVerdict(request.ToQuery(), verdict) && verdict == profile.action,
               "captured preset produced the wrong verdict");
-        if (profile.count == 2) {
+        if (profile.combinedWeb) {
             changed = request;
             changed.key.rport = 80;
             verdict = RuleAction::Block;
@@ -3350,6 +3676,7 @@ void TestCapturedConnectionPresets() {
                 const UINT nameId = loopback ? IDS_PRESET_RULE_LOOPBACK_TCP :
                     webview && j == 1 ? IDS_PRESET_RULE_QUIC :
                     webview && j == 2 ? IDS_PRESET_RULE_DNS_UDP :
+                    profile.combinedWeb ? IDS_PRESET_RULE_HTTPS_HTTP :
                     (httpOnly || j == 1) ? IDS_PRESET_RULE_HTTP : IDS_PRESET_RULE_HTTPS;
                 const std::wstring name = LoadStringRes(nameId);
                 const std::wstring expected = profile.service
@@ -3381,10 +3708,10 @@ void TestCapturedConnectionPresets() {
             reads = serviceReads;
             Check(!offered(changed) && serviceReads == reads,
                   "captured service preset queried SCM with a mismatched process handle");
-            if (profile.count == 2) {
+            if (profile.combinedWeb) {
                 AskRequest http = request;
                 http.key.rport = 80;
-                const Rule& httpRule = preset.rules[1];
+                const Rule& httpRule = preset.rules[0];
                 Check(offered(http) && RuleStore::MatchesRule(httpRule, http.ToQuery()),
                       "service HTTP rule rejected its own service");
                 for (auto services : {std::initializer_list<const wchar_t*>{},
@@ -4159,7 +4486,7 @@ void TestBraveMdnsPresets() {
     Check(choices.size() == 2, "Brave got duplicate browser profiles");
     const auto& secure = ChoiceOf(choices, IDS_PRESET_BROWSER_HTTPS);
     const auto& web = ChoiceOf(choices, IDS_PRESET_BROWSER_WEB);
-    Check(secure.rules.size() == 6 && web.rules.size() == 7,
+    Check(secure.rules.size() == 6 && web.rules.size() == 6,
           "Brave profiles must include both mDNS rules");
     for (const auto& choice : choices) {
         const Rule& outgoing = choice.rules[choice.rules.size() - 2];
@@ -4221,9 +4548,9 @@ void TestBraveMdnsPresets() {
 
     RuleStore store;
     std::vector<Rule> existing(web.rules.begin(), web.rules.end() - 2);
-    Check(RulePresets::Apply(store, request, existing) == 5, "cannot seed existing Brave web rules");
-    Check(RulePresets::Apply(store, request, secure.rules) == 2 && store.Count() == 7,
-          "Brave preset did not add only missing mDNS rules");
+    Check(RulePresets::Apply(store, request, existing) == 4, "cannot seed existing Brave web rules");
+    Check(RulePresets::Apply(store, request, secure.rules) == 3 && store.Count() == 7,
+          "Brave preset did not add its HTTPS and mDNS rules");
     const uint64_t version = store.version();
     Check(RulePresets::Apply(store, request, secure.rules) == 0 &&
           RulePresets::Apply(store, request, web.rules) == 0 && store.Count() == 7 &&
@@ -4235,11 +4562,11 @@ void TestSteamWebHelperDiscoveryPresets() {
     const auto choices = RulePresets::Suggest(request);
     Check(choices.size() == 1, "Steam web helper got duplicate profiles");
     const auto& preset = ChoiceOf(choices, IDS_PRESET_STEAM);
-    Check(preset.rules.size() == 12, "Steam web helper lost its base, discovery or loopback rules");
-    for (size_t i = 7; i + 1 < preset.rules.size(); ++i) {
+    Check(preset.rules.size() == 9, "Steam web helper lost its base, discovery or loopback rules");
+    for (size_t i = 4; i + 1 < preset.rules.size(); ++i) {
         const Rule& rule = preset.rules[i];
-        const bool outgoing = i % 2 == 1;
-        const uint16_t port = i < 9 ? 1900 : 5353;
+        const bool outgoing = i % 2 == 0;
+        const uint16_t port = i < 6 ? 1900 : 5353;
         const auto& ports = outgoing ? rule.remotePorts : rule.localPorts;
         Check(rule.scope == RuleScope::App && rule.appPath == request.appPath &&
               rule.action == RuleAction::Allow && rule.proto == Proto::Udp &&
@@ -4257,7 +4584,7 @@ void TestSteamWebHelperDiscoveryPresets() {
         const MatchQuery query = MakeMatchQuery(connection.appPath, connection.pid, connection.key,
             connection.dir, connection.icmpType, connection.icmpCode,
             connection.process.get());
-        Check(std::any_of(preset.rules.begin() + 7, preset.rules.end() - 1, [&](const Rule& rule) {
+        Check(std::any_of(preset.rules.begin() + 4, preset.rules.end() - 1, [&](const Rule& rule) {
                   return RuleStore::MatchesRule(rule, query);
               }), "Steam web helper discovery rules did not match their connection");
     };
@@ -4292,12 +4619,12 @@ void TestSteamWebHelperDiscoveryPresets() {
                   Proto::Udp, port, multicast4)).empty(), "Steam web helper discovery leaked to another app");
     }
     const auto steamChoices = RulePresets::Suggest(Request(L"C:\\Apps\\steam.exe"));
-    Check(ChoiceOf(steamChoices, IDS_PRESET_STEAM).rules.size() == 8,
+    Check(ChoiceOf(steamChoices, IDS_PRESET_STEAM).rules.size() == 5,
           "main Steam profile lost its base or incoming loopback rules");
     RuleStore store;
-    const std::vector<Rule> existing(preset.rules.begin(), preset.rules.begin() + 7);
-    Check(RulePresets::Apply(store, request, existing) == 7 &&
-          RulePresets::Apply(store, request, preset.rules) == 5 && store.Count() == 12,
+    const std::vector<Rule> existing(preset.rules.begin(), preset.rules.begin() + 4);
+    Check(RulePresets::Apply(store, request, existing) == 4 &&
+          RulePresets::Apply(store, request, preset.rules) == 5 && store.Count() == 9,
           "Steam web helper duplicated existing rules instead of adding discovery and loopback");
     const uint64_t version = store.version();
     Check(RulePresets::Apply(store, request, preset.rules) == 0 && store.version() == version,
@@ -4385,8 +4712,8 @@ void TestSteamErrorReporterPresets() {
 void TestSteamLoopbackPresets() {
     for (auto [path, direction, ruleCount] : {
         std::tuple{L"C:\\Program Files (x86)\\Steam\\bin\\cef\\cef.win64\\steamwebhelper.exe",
-                   Dir::Out, size_t{12}},
-        std::tuple{L"C:\\Program Files (x86)\\Steam\\steam.exe", Dir::In, size_t{8}}
+                   Dir::Out, size_t{9}},
+        std::tuple{L"C:\\Program Files (x86)\\Steam\\steam.exe", Dir::In, size_t{5}}
     }) {
         AskRequest request = Request(path, Proto::Tcp, 59941, L"::1");
         request.dir = direction;
@@ -4480,7 +4807,7 @@ void TestBitsLoopbackPresets() {
     const auto choices = RulePresets::Suggest(request);
     Check(choices.size() == 1, "BITS WinRM loopback connection lost its exact service profile");
     const auto& preset = ChoiceOf(choices, IDS_PRESET_BITS);
-    Check(preset.rules.size() == 5, "BITS lost its web rules or WinRM loopback rule");
+    Check(preset.rules.size() == 4, "BITS lost its web rules or WinRM loopback rule");
     for (const Rule& item : preset.rules)
         Check((item.conds & CondService) && item.services.size() == 1 &&
               item.services.front().name == L"BITS", "BITS rules escaped the exact service");
@@ -4541,8 +4868,8 @@ void TestBitsLoopbackPresets() {
 
     RuleStore store;
     const std::vector<Rule> existing(preset.rules.begin(), preset.rules.end() - 1);
-    Check(RulePresets::Apply(store, request, existing) == 4 &&
-          RulePresets::Apply(store, request, preset.rules) == 1 && store.Count() == 5,
+    Check(RulePresets::Apply(store, request, existing) == 3 &&
+          RulePresets::Apply(store, request, preset.rules) == 1 && store.Count() == 4,
           "BITS profile did not add only the missing WinRM loopback rule");
     const uint64_t version = store.version();
     const UiLang previous = CurrentUiLang();
@@ -4554,7 +4881,7 @@ void TestBitsLoopbackPresets() {
         const auto& localized = ChoiceOf(translated, IDS_PRESET_BITS);
         Check(localized.rules.back().name.find(LoadStringRes(IDS_PRESET_RULE_WINRM_LOOPBACK)) !=
                   std::wstring::npos && RulePresets::Apply(store, request, localized.rules) == 0 &&
-              store.Count() == 5 && store.version() == version,
+              store.Count() == 4 && store.version() == version,
               "translated BITS profile lost its WinRM name or duplicated rules");
     }
     SetUiLang(previous);
@@ -4682,7 +5009,7 @@ void TestFirefoxLoopbackPresets() {
     Check(choices.size() == 2, "Firefox loopback did not offer both browser profiles");
     const auto& secure = ChoiceOf(choices, IDS_PRESET_BROWSER_HTTPS);
     const auto& web = ChoiceOf(choices, IDS_PRESET_BROWSER_WEB);
-    Check(secure.rules.size() == 5 && web.rules.size() == 6,
+    Check(secure.rules.size() == 5 && web.rules.size() == 5,
           "Firefox profiles must include one loopback rule");
     for (const auto& choice : choices) {
         const Rule& rule = choice.rules.back();
@@ -4722,9 +5049,9 @@ void TestFirefoxLoopbackPresets() {
 
     RuleStore store;
     std::vector<Rule> existing(web.rules.begin(), web.rules.end() - 1);
-    Check(RulePresets::Apply(store, request, existing) == 5, "cannot seed existing Firefox web rules");
-    Check(RulePresets::Apply(store, request, secure.rules) == 1 && store.Count() == 6,
-          "Firefox preset did not add only the missing loopback rule");
+    Check(RulePresets::Apply(store, request, existing) == 4, "cannot seed existing Firefox web rules");
+    Check(RulePresets::Apply(store, request, secure.rules) == 2 && store.Count() == 6,
+          "Firefox preset did not add the HTTPS and loopback rules");
     const uint64_t version = store.version();
     Check(RulePresets::Apply(store, request, secure.rules) == 0 &&
           RulePresets::Apply(store, request, web.rules) == 0 && store.Count() == 6 &&
@@ -4959,7 +5286,7 @@ void TestStoreServicePresets(const wchar_t* service, UINT titleId, const wchar_t
     const auto choices = RulePresets::Suggest(request);
     Check(choices.size() == 1, "Store service HTTPS request did not get its service profile");
     const auto& preset = ChoiceOf(choices, titleId);
-    Check(preset.rules.size() == 4 && preset.title.find(service) != std::wstring::npos,
+    Check(preset.rules.size() == 3 && preset.title.find(service) != std::wstring::npos,
           "Store service profile lost its web rules or service key");
     for (const Rule& rule : preset.rules) {
         Check(rule.scope == RuleScope::App && rule.appPath == request.appPath &&
@@ -4968,18 +5295,19 @@ void TestStoreServicePresets(const wchar_t* service, UINT titleId, const wchar_t
               rule.services.front().name == service && !rule.autoName &&
               rule.name.find(service) != std::wstring::npos,
               "Store service rule lost its application, service or localized name");
-        Check(rule.remotePorts.size() == 1 && rule.localPorts.empty() && rule.localAddrs.empty(),
+        Check(!rule.remotePorts.empty() && rule.localPorts.empty() && rule.localAddrs.empty(),
               "Store service rule pinned the captured local endpoint");
         const uint16_t port = rule.remotePorts.front().from;
         Check(rule.remotePorts.front().to == port, "Store service rule widened the port range");
         if (port == 53) {
-            Check((rule.proto == Proto::Tcp || rule.proto == Proto::Udp) &&
+            Check(rule.remotePorts.size() == 1 && (rule.proto == Proto::Tcp || rule.proto == Proto::Udp) &&
                   (rule.conds & CondRemoteAddr) && rule.remoteAddrs.size() == 2 &&
                   rule.remoteAddrs[0].macro == AddrMacro::DnsServers &&
                   rule.remoteAddrs[1].macro == AddrMacro::MyComputer,
                   "Store service DNS lost its resolver restriction");
         } else {
-            Check(rule.proto == Proto::Tcp && (port == 443 || port == 80) &&
+            Check(rule.proto == Proto::Tcp && port == 443 && rule.remotePorts.size() == 2 &&
+                  rule.remotePorts[1].from == 80 && rule.remotePorts[1].to == 80 &&
                   !(rule.conds & CondRemoteAddr) && rule.remoteAddrs.empty(),
                   "Store service web rules pinned a server or allowed an unrelated port");
         }
@@ -5010,7 +5338,7 @@ void TestStoreServicePresets(const wchar_t* service, UINT titleId, const wchar_t
     RuleStore store;
     Check(RulePresets::Apply(store, request, {preset.rules.front()}) == 1,
           "cannot seed an existing Store service rule");
-    Check(RulePresets::Apply(store, request, preset.rules) == 3 && store.Count() == 4,
+    Check(RulePresets::Apply(store, request, preset.rules) == 2 && store.Count() == 3,
           "Store service preset duplicated an existing rule");
     const uint64_t version = store.version();
     Check(RulePresets::Apply(store, request, preset.rules) == 0 && store.version() == version,
@@ -5284,7 +5612,7 @@ void TestDiscoveryDeliveryPresets() {
     const auto discoveryChoices = RulePresets::Suggest(discovery);
     Check(discoveryChoices.size() == 1, "fdPHost got duplicate or unrelated profiles");
     const auto& host = ChoiceOf(discoveryChoices, IDS_PRESET_FUNCTION_DISCOVERY_HOST);
-    checkBoundary(discovery, host, L"fdPHost", 5);
+    checkBoundary(discovery, host, L"fdPHost", 3);
     for (const Rule& rule : host.rules) {
         Check((rule.conds & CondRemoteAddr) && rule.remoteAddrs.size() >= 2 &&
               rule.remoteAddrs[0].macro == AddrMacro::LocalNetwork &&
@@ -5296,9 +5624,9 @@ void TestDiscoveryDeliveryPresets() {
                   rule.remoteAddrs.size() == 2, "fdPHost metadata allowed unrelated ports or multicast");
         else {
             const auto& ports = rule.dir == Dir::Out ? rule.remotePorts : rule.localPorts;
-            Check(rule.proto == Proto::Udp && ports.size() == 1 &&
-                  (ports.front().from == 1900 || ports.front().from == 3702) &&
-                  ports.front().from == ports.front().to && rule.remoteAddrs.size() == 4,
+            Check(rule.proto == Proto::Udp && ports.size() == 2 &&
+                  ports[0].from == 1900 && ports[0].to == 1900 &&
+                  ports[1].from == 3702 && ports[1].to == 3702 && rule.remoteAddrs.size() == 4,
                   "fdPHost discovery allowed unrelated protocols, ports or addresses");
         }
     }
@@ -5315,6 +5643,14 @@ void TestDiscoveryDeliveryPresets() {
             connection.key.lport = port;
             expectConnection(connection, IDS_PRESET_FUNCTION_DISCOVERY_HOST);
         }
+    }
+    for (uint16_t port : {uint16_t{1899}, uint16_t{1901}, uint16_t{3701}, uint16_t{3703}}) {
+        AskRequest unrelated = Request(discovery.appPath, Proto::Udp, port, L"239.255.255.250");
+        Check(RulePresets::Suggest(unrelated).empty(), "fdPHost accepted another remote discovery port");
+        unrelated.dir = Dir::In;
+        unrelated.key.rport = 41000;
+        unrelated.key.lport = port;
+        Check(RulePresets::Suggest(unrelated).empty(), "fdPHost accepted another local discovery port");
     }
     for (uint16_t port : {uint16_t{5357}, uint16_t{5358}})
         expectConnection(Request(discovery.appPath, Proto::Tcp, port, L"127.0.0.1"),
@@ -5337,11 +5673,11 @@ void TestDiscoveryDeliveryPresets() {
     Check(deliveryChoices.size() == 2, "DoSvc web connection did not offer basic and full profiles");
     const auto& web = ChoiceOf(deliveryChoices, IDS_PRESET_DELIVERY_WEB);
     const auto& full = ChoiceOf(deliveryChoices, IDS_PRESET_DELIVERY_FULL);
-    checkBoundary(delivery, full, L"DoSvc", 6);
-    for (size_t i = 4; i < full.rules.size(); ++i) {
+    checkBoundary(delivery, full, L"DoSvc", 5);
+    for (size_t i = 3; i < full.rules.size(); ++i) {
         const Rule& rule = full.rules[i];
-        const auto& ports = i == 4 ? rule.remotePorts : rule.localPorts;
-        Check(rule.proto == Proto::Tcp && rule.dir == (i == 4 ? Dir::Out : Dir::In) &&
+        const auto& ports = i == 3 ? rule.remotePorts : rule.localPorts;
+        Check(rule.proto == Proto::Tcp && rule.dir == (i == 3 ? Dir::Out : Dir::In) &&
               ports.size() == 1 && ports.front().from == 7680 && ports.front().to == 7680 &&
               (rule.conds & CondRemoteAddr) && rule.remoteAddrs.size() == 2 &&
               rule.remoteAddrs[0].macro == AddrMacro::LocalNetwork &&
@@ -5376,9 +5712,102 @@ void TestDiscoveryDeliveryPresets() {
         Check(RulePresets::Suggest(Request(delivery.appPath, proto, port)).empty(),
               "DoSvc permitted public peers, arbitrary DNS or unrelated traffic");
     RuleStore store;
-    Check(RulePresets::Apply(store, delivery, web.rules) == 4 &&
-          RulePresets::Apply(store, delivery, full.rules) == 2 && store.Count() == 6,
+    Check(RulePresets::Apply(store, delivery, web.rules) == 3 &&
+          RulePresets::Apply(store, delivery, full.rules) == 2 && store.Count() == 5,
           "full DoSvc profile duplicated existing web/DNS rules");
+}
+
+void TestGitHttpsLoopbackPreset() {
+    const UiLang previous = CurrentUiLang();
+    SetUiLang(UiLang::English);
+    AskRequest request = Request(L"C:\\Program Files\\Git\\mingw64\\libexec\\git-core\\git-remote-https.exe",
+                                 Proto::Tcp, 28906, L"127.0.0.1");
+    request.key.local = Ip(L"127.0.0.1");
+    request.key.lport = 28907;
+    request.interfaceName = std::make_shared<const std::wstring>(L"Loopback Pseudo-Interface 1");
+    request.conditionFlags = 1;
+    const auto offered = [](const AskRequest& flow) {
+        const auto choices = RulePresets::Suggest(flow);
+        return std::any_of(choices.begin(), choices.end(), [](const auto& choice) {
+            return choice.titleId == IDS_PRESET_GIT_HTTPS_LOOPBACK;
+        });
+    };
+    const auto choices = RulePresets::Suggest(request);
+    Check(choices.size() == 1, "Git HTTPS loopback request did not receive its own preset");
+    const auto& preset = ChoiceOf(choices, IDS_PRESET_GIT_HTTPS_LOOPBACK);
+    Check(preset.title == L"git-remote-https.exe: Local connections (loopback), TCP" &&
+          preset.rules.size() == 1, "Git HTTPS loopback preset lost its title or rule");
+    const Rule& rule = preset.rules.front();
+    Check(rule.scope == RuleScope::App && EqualNoCase(rule.appPath, request.appPath) &&
+          rule.action == RuleAction::Allow && rule.proto == Proto::Tcp && rule.dir == Dir::Unknown &&
+          rule.conds == (CondProto | CondRemoteAddr | CondLocalAddr) &&
+          rule.remoteAddrs.size() == 1 && rule.localAddrs.size() == 1 &&
+          rule.remoteAddrs[0].addr == Ip(L"127.0.0.1") && rule.remoteAddrs[0].prefix == -1 &&
+          rule.localAddrs[0].addr == Ip(L"127.0.0.1") && rule.localAddrs[0].prefix == -1 &&
+          rule.remotePorts.empty() && rule.localPorts.empty() && rule.services.empty() &&
+          rule.interfaceName.empty() && rule.conditionFlags == 0 && !rule.autoName,
+          "Git HTTPS loopback rule lost its exact endpoints or pinned a captured condition");
+    RuleStore store;
+    Check(RulePresets::Apply(store, request, preset.rules) == 1 && store.Count() == 1,
+          "Git HTTPS loopback preset was not applied");
+    for (Dir direction : {Dir::Out, Dir::In}) {
+        for (uint16_t port : {uint16_t{1}, uint16_t{80}, uint16_t{443},
+                              uint16_t{28906}, uint16_t{65535}}) {
+            AskRequest flow = request;
+            flow.dir = direction;
+            flow.key = MakeFlowKey(Proto::Tcp, Ip(L"127.0.0.1"), Ip(L"127.0.0.1"), 12345, port);
+            flow.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
+            flow.conditionFlags.reset();
+            RuleAction action = RuleAction::Block;
+            Check(offered(flow) && RuleStore::MatchesRule(rule, flow.ToQuery()) &&
+                  store.MatchVerdict(flow.ToQuery(), action) && action == RuleAction::Allow,
+                  "Git HTTPS loopback rule depended on ports, interface, flags or direction");
+        }
+    }
+    for (bool local : {false, true}) {
+        for (const wchar_t* address : {L"127.0.0.2", L"192.0.2.1", L"::1"}) {
+            AskRequest wrong = request;
+            if (local) wrong.key.local = Ip(address);
+            else wrong.key.remote = Ip(address);
+            Check(!offered(wrong) && !RuleStore::MatchesRule(rule, wrong.ToQuery()),
+                  "Git HTTPS loopback rule accepted another local or remote address");
+        }
+    }
+    AskRequest wrong = request;
+    wrong.key.proto = Proto::Udp;
+    Check(!offered(wrong) && !RuleStore::MatchesRule(rule, wrong.ToQuery()),
+          "Git HTTPS loopback rule accepted UDP");
+    for (const wchar_t* path : {L"C:\\Apps\\git.exe", L"C:\\Apps\\git-remote-http.exe",
+                                L"C:\\Apps\\other.exe"}) {
+        wrong = request;
+        wrong.appPath = path;
+        Check(!offered(wrong) && !RuleStore::MatchesRule(rule, wrong.ToQuery()),
+              "Git HTTPS loopback preset accepted another executable");
+    }
+    wrong = request;
+    wrong.appPath = L"D:\\Other\\git-remote-https.exe";
+    Check(offered(wrong) && !RuleStore::MatchesRule(rule, wrong.ToQuery()),
+          "Git HTTPS loopback rule lost its concrete executable path scope");
+    wrong = request;
+    wrong.ownerAmbiguous = true;
+    Check(!offered(wrong), "ambiguous owner received a Git HTTPS loopback preset");
+    const uint64_t version = store.version();
+    size_t count = 0;
+    const UiLangInfo* languages = UiLangs(count);
+    for (size_t i = 0; i < count; ++i) {
+        SetUiLang(languages[i].lang);
+        const auto localized = RulePresets::Suggest(request);
+        const auto& translated = ChoiceOf(localized, IDS_PRESET_GIT_HTTPS_LOOPBACK);
+        const std::wstring title = LoadStringRes(IDS_PRESET_GIT_HTTPS_LOOPBACK);
+        Check(title.find(L"git-remote-https.exe") != std::wstring::npos &&
+              translated.title == title && translated.rules.size() == 1 &&
+              translated.rules[0].name == LoadStringResFmt(IDS_PRESET_RULE_NAME_FMT,
+                  title.c_str(), LoadStringRes(IDS_PRESET_RULE_LOOPBACK_TCP_IPV4).c_str()) &&
+              RulePresets::Apply(store, request, translated.rules) == 0 &&
+              store.Count() == 1 && store.version() == version,
+              "localized Git HTTPS loopback preset was lost or duplicated");
+    }
+    SetUiLang(previous);
 }
 
 void TestExactTcpLoopbackPresets() {
@@ -5522,25 +5951,54 @@ void TestSystemLoopbackPresets() {
     Check(smbRules.size() == 2 && udpRules.size() == 1 &&
           smbRules[0].name != smbRules[1].name,
           "System loopback profiles lost SMB or UDP rules or their distinct names");
-    for (auto [rule, proto, direction, remotePort, localPort] : {
-        std::tuple{&smbRules[0], Proto::Tcp, Dir::Out, uint16_t{445}, uint16_t{0}},
-        std::tuple{&smbRules[1], Proto::Tcp, Dir::In, uint16_t{0}, uint16_t{445}},
-        std::tuple{&udpRules[0], Proto::Udp, Dir::Out, uint16_t{443}, uint16_t{0}}
+    for (auto [rule, proto, remotePort, localPort] : {
+        std::tuple{&smbRules[0], Proto::Tcp, uint16_t{445}, uint16_t{0}},
+        std::tuple{&smbRules[1], Proto::Tcp, uint16_t{0}, uint16_t{445}},
+        std::tuple{&udpRules[0], Proto::Udp, uint16_t{443}, uint16_t{0}}
     }) {
         const uint32_t portCond = remotePort ? CondRemotePort : CondLocalPort;
         const auto& ports = remotePort ? rule->remotePorts : rule->localPorts;
         Check(rule->scope == RuleScope::App && EqualNoCase(rule->appPath, smb.appPath) &&
-              rule->action == RuleAction::Allow && rule->proto == proto && rule->dir == direction &&
-              rule->conds == (CondProto | CondDirection | CondRemoteAddr | CondLocalAddr | portCond) &&
+              rule->action == RuleAction::Allow && rule->proto == proto && rule->dir == Dir::Unknown &&
+              rule->conds == (CondProto | CondRemoteAddr | CondLocalAddr | portCond) &&
               ports.size() == 1 && ports[0].from == (remotePort ? remotePort : localPort) &&
               ports[0].to == ports[0].from && rule->services.empty() &&
+              (remotePort ? rule->localPorts.empty() : rule->remotePorts.empty()) &&
+              rule->interfaceName.empty() && rule->conditionFlags == 0 &&
               rule->remoteAddrs.size() == 2 && rule->localAddrs.size() == 2,
               "System loopback rule lost its application, port or endpoint conditions");
         for (const auto* addresses : {&rule->remoteAddrs, &rule->localAddrs}) {
             Check((*addresses)[0].addr == Ip(L"127.0.0.0") && (*addresses)[0].prefix == 8 &&
                   (*addresses)[1].addr == Ip(L"::1"), "System loopback address was widened");
         }
+        for (const wchar_t* address : {L"127.0.0.2", L"::1"}) {
+            for (Dir direction : {Dir::Out, Dir::In}) {
+                AskRequest flow = smb;
+                flow.dir = direction;
+                flow.key = MakeFlowKey(proto, Ip(address), Ip(address),
+                    localPort ? localPort : 50000, remotePort ? remotePort : 50000);
+                Check(RuleStore::MatchesRule(*rule, flow.ToQuery()),
+                      "System loopback rule should accept its port on either direction");
+                if (remotePort) flow.key.rport = 50001;
+                else flow.key.lport = 50001;
+                Check(!RuleStore::MatchesRule(*rule, flow.ToQuery()),
+                      "System loopback rule accepted a different port on its restricted side");
+            }
+        }
     }
+    RuleStore legacyStore;
+    std::vector<Rule> legacySmb = smbRules;
+    std::vector<Rule> legacyUdp = udpRules;
+    legacySmb[0].dir = Dir::Out;
+    legacySmb[1].dir = Dir::In;
+    legacyUdp[0].dir = Dir::Out;
+    for (Rule& rule : legacySmb) rule.conds |= CondDirection;
+    legacyUdp[0].conds |= CondDirection;
+    Check(RulePresets::Apply(legacyStore, smb, legacySmb) == 2 &&
+          RulePresets::Apply(legacyStore, udp, legacyUdp) == 1 &&
+          RulePresets::Apply(legacyStore, smb, smbRules) == 0 &&
+          RulePresets::Apply(legacyStore, udp, udpRules) == 0 && legacyStore.Count() == 3,
+          "direction-free System presets duplicated equivalent existing rules");
     RuleStore store;
     Check(RulePresets::Apply(store, smb, smbRules) == 2 &&
           RulePresets::Apply(store, udp, udpRules) == 1 && store.Count() == 3,
@@ -5923,7 +6381,7 @@ void TestDuplicatesAndPersistence() {
     AskRequest mailRequest = Request(L"C:\\Apps\\thunderbird.exe", Proto::Tcp, 993);
     const auto mailChoices = RulePresets::Suggest(mailRequest);
     const auto& mail = ChoiceOf(mailChoices, IDS_PRESET_MAIL);
-    Rule modified = mail.rules.back();
+    Rule modified = mail.rules.front();
     std::reverse(modified.remotePorts.begin(), modified.remotePorts.end());
     modified.remotePorts.push_back({993, 993});
     store.Add(modified);
@@ -6104,7 +6562,10 @@ void TestAskWindowActions() {
           "Block once created a rule decision");
     show();
     SendMessageW(window.hwnd(), WM_COMMAND, MAKEWPARAM(703, BN_CLICKED), 0);
-    Check(calls == 3 && decision.action == AskAction::Preset && decision.presetRules.size() == 5,
+    Check(calls == 3 && decision.action == AskAction::Preset && decision.presetRules.size() == 4 &&
+          decision.presetRules[0].remotePorts.size() == 2 &&
+          decision.presetRules[0].remotePorts[0].from == 443 &&
+          decision.presetRules[0].remotePorts[1].from == 80,
           "Use presets did not apply the fuller default selection");
     show();
     SendDlgItemMessageW(window.hwnd(), 704, CB_SETCURSEL, 2, 0);
@@ -6119,11 +6580,12 @@ void TestAskWindowActions() {
     SendMessageW(window.hwnd(), WM_COMMAND, MAKEWPARAM(703, BN_CLICKED), 0);
     Check(calls == 5 && decision.action == AskAction::Custom, "fallback did not open the editor");
     for (auto [file, proto, port, remote, selected, ruleCount] : {
-        std::tuple{L"firefox.exe", Proto::Tcp, uint16_t{24493}, L"127.0.0.1", 1, size_t{6}},
-        std::tuple{L"brave.exe", Proto::Udp, uint16_t{5353}, L"224.0.0.251", 1, size_t{7}},
-        std::tuple{L"chrome.exe", Proto::Tcp, uint16_t{80}, L"198.51.100.20", 0, size_t{5}},
-        std::tuple{L"steamwebhelper.exe", Proto::Udp, uint16_t{1900}, L"239.255.255.250", 0, size_t{12}},
-        std::tuple{L"steamwebhelper.exe", Proto::Udp, uint16_t{5353}, L"224.0.0.251", 0, size_t{12}}
+        std::tuple{L"devenv.exe", Proto::Tcp, uint16_t{443}, L"198.51.100.20", 1, size_t{1}},
+        std::tuple{L"firefox.exe", Proto::Tcp, uint16_t{24493}, L"127.0.0.1", 1, size_t{5}},
+        std::tuple{L"brave.exe", Proto::Udp, uint16_t{5353}, L"224.0.0.251", 1, size_t{6}},
+        std::tuple{L"chrome.exe", Proto::Tcp, uint16_t{80}, L"198.51.100.20", 0, size_t{4}},
+        std::tuple{L"steamwebhelper.exe", Proto::Udp, uint16_t{1900}, L"239.255.255.250", 0, size_t{9}},
+        std::tuple{L"steamwebhelper.exe", Proto::Udp, uint16_t{5353}, L"224.0.0.251", 0, size_t{9}}
     }) {
         request = Request(std::wstring(L"C:\\Apps\\") + file, proto, port, remote);
         request.id = {1, 1};
@@ -6136,9 +6598,9 @@ void TestAskWindowActions() {
               decision.presetRules.size() == ruleCount, "fuller default profile was not applied");
     }
     for (auto [service, proto, port, remote, selected, ruleCount] : {
-        std::tuple{L"fdPHost", Proto::Udp, uint16_t{1900}, L"239.255.255.250", 0, size_t{5}},
-        std::tuple{L"DoSvc", Proto::Tcp, uint16_t{443}, L"198.51.100.20", 1, size_t{6}},
-        std::tuple{L"DoSvc", Proto::Tcp, uint16_t{7680}, L"127.0.0.1", 1, size_t{6}}
+        std::tuple{L"fdPHost", Proto::Udp, uint16_t{1900}, L"239.255.255.250", 0, size_t{3}},
+        std::tuple{L"DoSvc", Proto::Tcp, uint16_t{443}, L"198.51.100.20", 1, size_t{5}},
+        std::tuple{L"DoSvc", Proto::Tcp, uint16_t{7680}, L"127.0.0.1", 1, size_t{5}}
     }) {
         request = Request(SystemDirFile(L"svchost.exe"), proto, port, remote);
         request.id = {1, 1};
@@ -6151,6 +6613,22 @@ void TestAskWindowActions() {
         Check(calls == before + 1 && decision.action == AskAction::Preset &&
               decision.presetRules.size() == ruleCount, "discovery/delivery default profile was not applied");
     }
+    request = Request(KernelImagePath(), Proto::Udp, 443, L"127.0.0.1");
+    request.pid = 4;
+    request.process.reset();
+    request.appName = L"SYSTEM";
+    request.id = {1, 1};
+    request.key.local = Ip(L"127.0.0.1");
+    request.key.lport = 137;
+    const unsigned beforeOverlap = calls;
+    show();
+    Check(SendDlgItemMessageW(window.hwnd(), 704, CB_GETCOUNT, 0, 0) == 3 &&
+          SendDlgItemMessageW(window.hwnd(), 704, CB_GETCURSEL, 0, 0) == 0 && calls == beforeOverlap,
+          "unrelated block preset replaced the default allow preset");
+    SendMessageW(window.hwnd(), WM_COMMAND, MAKEWPARAM(703, BN_CLICKED), 0);
+    Check(calls == beforeOverlap + 1 && decision.action == AskAction::Preset &&
+          decision.presetRules.size() == 1 && decision.presetRules[0].action == RuleAction::Allow,
+          "overlapping allow and block presets changed the default action");
     for (uint16_t port : {uint16_t{137}, uint16_t{138}}) {
         request = Request(KernelImagePath(), Proto::Udp, port,
             port == 137 ? L"192.168.219.255" : L"10.180.0.255");
@@ -8175,7 +8653,10 @@ int main(int argc, char** argv) {
         }
         if (argc == 2 && std::string(argv[1]) == "--captured-presets-only") {
             TestNewResources();
+            TestCombinedPresetPorts();
             TestFeedbackOfficeAndWebViewPresets();
+            TestITunesPreset();
+            TestTaskHostHttpPreset();
             TestIgmpPreset();
             TestIgmpInboundPreset();
             TestEdgeMdnsPreset();
@@ -8189,6 +8670,7 @@ int main(int argc, char** argv) {
             TestGeolocationPreset();
             TestDhcpClientPortsPreset(L"Dhcp");
             TestDhcpClientPortsPreset(L"SharedAccess");
+            TestGitHttpsLoopbackPreset();
             TestExactTcpLoopbackPresets();
             TestSystemLoopbackPresets();
             TestNetbiosBlockPresets();
@@ -8240,7 +8722,10 @@ int main(int argc, char** argv) {
         TestAutomaticRuleNames();
         TestAddressListRuleNames();
         TestApplicationSuggestions();
+        TestCombinedPresetPorts();
         TestFeedbackOfficeAndWebViewPresets();
+        TestITunesPreset();
+        TestTaskHostHttpPreset();
         TestVisualStudioPresets();
         TestIgmpPreset();
         TestIgmpInboundPreset();
@@ -8279,6 +8764,7 @@ int main(int argc, char** argv) {
         TestUserPushServicePreset();
         TestLanguagePackPresets();
         TestDiscoveryDeliveryPresets();
+        TestGitHttpsLoopbackPreset();
         TestExactTcpLoopbackPresets();
         TestSystemLoopbackPresets();
         TestNetbiosBlockPresets();

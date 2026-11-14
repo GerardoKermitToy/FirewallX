@@ -346,16 +346,20 @@ void AskWindow::Build() {
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_PRESETS)), inst_, nullptr);
     if (presetsCombo_) {
         SendMessageW(presetsCombo_, WM_SETFONT, reinterpret_cast<WPARAM>(fBody_), FALSE);
-        // По умолчанию выбираем наиболее полный подходящий набор правил.
+        // При равном числе правил предпочитаем строго более полный набор.
         LRESULT defaultIndex = 0;
+        size_t defaultPreset = 0;
         size_t defaultRuleCount = 0;
         for (size_t i = 0; i < presets_.size(); ++i) {
             const LRESULT index = SendMessageW(presetsCombo_, CB_ADDSTRING, 0,
                 reinterpret_cast<LPARAM>(presets_[i].title.c_str()));
             if (index >= 0) {
                 SendMessageW(presetsCombo_, CB_SETITEMDATA, index, static_cast<LPARAM>(i));
-                if (presets_[i].rules.size() > defaultRuleCount) {
+                if (presets_[i].rules.size() > defaultRuleCount ||
+                    (defaultRuleCount && presets_[i].rules.size() == defaultRuleCount &&
+                     RulePresets::StrictlyCovers(presets_[i].rules, presets_[defaultPreset].rules))) {
                     defaultIndex = index;
+                    defaultPreset = i;
                     defaultRuleCount = presets_[i].rules.size();
                 }
             }

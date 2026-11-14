@@ -101,6 +101,8 @@ struct TempDirectory {
                                      L"devenv.exe", L"winget.exe", L"wget.exe", L"pwsh.exe",
                                      L"powershell.exe", L"python.exe", L"python3.exe", L"perl.exe",
                                      L"FeedbackHub.exe", L"MSPUB.EXE", L"POWERPNT.EXE", L"WINWORD.EXE",
+                                     L"BackgroundDownload.exe", L"Blend.exe", L"PerfWatson2.exe",
+                                     L"iTunes.exe", L"Wireshark.exe", L"SIHClient.exe", L"taskhostw.exe",
                                      L"CopilotApp.exe", L"explorer.exe", L"MpCmdRun.exe",
                                      L"Discord.exe", L"obs64.exe", L"OneDrive.exe",
                                      L"OneDrive.Sync.Service.exe", L"OneDriveUpdaterService.exe",
@@ -528,7 +530,7 @@ struct AppStorageTestAccess {
         CheckAuto(static_cast<bool>(f.app.autoSignature_), "package signature check did not start");
         Complete(f.app);
         CheckAuto(!Ingest::Instance().IsPending(id) && f.app.queue_.empty() &&
-                  f.app.rules_.Count() == 4 && verdicts.size() == 1,
+                  f.app.rules_.Count() == 3 && verdicts.size() == 1,
                   "signed package request was not resolved automatically");
     }
 
@@ -1098,7 +1100,7 @@ void GeneratedExecutableSelection(const std::wstring& systemExe) {
     std::vector<Rule> visualRules;
     for (const Rule& rule : result.rules)
         if (EqualNoCase(rule.appPath, visualStudio)) visualRules.push_back(rule);
-    CheckAuto(visualRules.size() == 3 && std::all_of(visualRules.begin(), visualRules.end(),
+    CheckAuto(visualRules.size() == 2 && std::all_of(visualRules.begin(), visualRules.end(),
         [](const Rule& rule) {
             return rule.scope == RuleScope::App && rule.action == RuleAction::Allow &&
                 rule.proto == Proto::Tcp && rule.dir == Dir::Out &&
@@ -1107,11 +1109,12 @@ void GeneratedExecutableSelection(const std::wstring& systemExe) {
     RuleStore store;
     CheckAuto(RulePresets::ApplyGenerated(store, visualRules) == 2 &&
               RulePresets::ApplyGenerated(store, visualRules) == 0 && store.Count() == 2,
-              "Visual Studio generation did not deduplicate the two profiles");
+              "Visual Studio generation did not retain both profiles or deduplicate repeats");
     for (uint16_t port : {uint16_t{80}, uint16_t{443}})
         CheckAuto(std::any_of(visualRules.begin(), visualRules.end(), [&](const Rule& rule) {
-            return rule.remotePorts.size() == 1 && rule.remotePorts.front().from == port &&
-                   rule.remotePorts.front().to == port;
+            return std::any_of(rule.remotePorts.begin(), rule.remotePorts.end(), [&](const PortItem& item) {
+                return item.from == port && item.to == port;
+            });
         }), "Visual Studio generation omitted a template port");
 }
 
@@ -1133,7 +1136,7 @@ void GeneratedDoSvc(const std::wstring& signedDll, const std::wstring& unsignedD
         serviceRules.push_back(rule);
     }
     RuleStore store;
-    CheckAuto(serviceRules.size() == 12 && RulePresets::ApplyGenerated(store, serviceRules) == 6 &&
+    CheckAuto(serviceRules.size() == 10 && RulePresets::ApplyGenerated(store, serviceRules) == 5 &&
               RulePresets::ApplyGenerated(store, serviceRules) == 0,
               "DoSvc templates were incomplete or generated duplicate rules");
     for (Dir direction : {Dir::Out, Dir::In}) {
@@ -1246,6 +1249,109 @@ void GeneratedOfficeAndFeedback(const std::wstring& systemExe, const wchar_t* un
               std::none_of(unsignedResult.rules.begin(), unsignedResult.rules.end(),
                   [&](const Rule& rule) { return EqualNoCase(rule.appPath, unsignedPath); }),
               "unsigned requested application received rules");
+}
+
+void GeneratedNewPrograms(const std::wstring& systemExe, const wchar_t* unsignedExe) {
+    struct Program {
+        const wchar_t* name;
+        size_t ruleCount;
+    };
+    const Program programs[] = {
+        {L"BackgroundDownload.exe", 1}, {L"Blend.exe", 1}, {L"PerfWatson2.exe", 1},
+        {L"iTunes.exe", 4}, {L"Wireshark.exe", 1}, {L"SIHClient.exe", 1}, {L"taskhostw.exe", 2},
+        {L"git-remote-https.exe", 4}
+    };
+    TempDirectory signedDir, unsignedDir, excludedDir;
+    std::vector<std::wstring> candidates;
+    const auto executables = RulePresets::Executables();
+    size_t expectedRules = 2; // Два независимых от приложений правила IGMP.
+    for (const Program& program : programs) {
+        CheckAuto(std::count_if(executables.begin(), executables.end(), [&](const std::wstring& name) {
+            return EqualNoCase(name, program.name);
+        }) == 1, "new program is absent from the executable list or duplicated");
+        const std::wstring signedPath = signedDir.File(program.name);
+        const std::wstring unsignedPath = unsignedDir.File(program.name);
+        CheckAuto(CopyFileW(systemExe.c_str(), signedPath.c_str(), FALSE) &&
+                  CopyFileW(unsignedExe, unsignedPath.c_str(), FALSE),
+                  "cannot copy new program test executables");
+        candidates.push_back(signedPath);
+        candidates.push_back(unsignedPath);
+        expectedRules += program.ruleCount;
+    }
+    for (const wchar_t* name : {L"curl.exe", L"wget.exe", L"pwsh.exe", L"powershell.exe",
+                                L"python.exe", L"python3.exe", L"perl.exe"}) {
+        const std::wstring path = excludedDir.File(name);
+        CheckAuto(CopyFileW(systemExe.c_str(), path.c_str(), FALSE),
+                  "cannot copy excluded test executable");
+        candidates.push_back(path);
+    }
+
+    std::atomic_bool cancel{false};
+    size_t completed = 0, total = 0;
+    const auto result = RuleGenerator::VerifyCandidates(candidates, {}, cancel,
+        [&](size_t done, size_t count) { completed = done; total = count; });
+    CheckAuto(!result.cancelled && total == std::size(programs) * 2 && completed == total &&
+              result.files.size() == std::size(programs) && result.rules.size() == expectedRules,
+              "generation verified excluded programs or accepted an unsigned program");
+    for (const Program& program : programs) {
+        const std::wstring signedPath = signedDir.File(program.name);
+        const std::wstring unsignedPath = unsignedDir.File(program.name);
+        std::vector<const Rule*> rules;
+        for (const Rule& rule : result.rules) {
+            CheckAuto(!EqualNoCase(rule.appPath, unsignedPath) &&
+                      !RulePresets::ExcludedFromGeneration(rule.appPath),
+                      "unsigned or excluded program received a rule");
+            if (EqualNoCase(rule.appPath, signedPath)) rules.push_back(&rule);
+        }
+        CheckAuto(rules.size() == program.ruleCount &&
+                  std::all_of(rules.begin(), rules.end(), [](const Rule* rule) {
+                      return rule->scope == RuleScope::App && rule->action == RuleAction::Allow;
+                  }), "new program did not receive its complete template");
+        for (uint16_t port : {uint16_t{80}, uint16_t{443}}) {
+            CheckAuto(std::any_of(rules.begin(), rules.end(), [&](const Rule* rule) {
+                return rule->proto == Proto::Tcp && rule->dir == Dir::Out &&
+                    rule->conds == (CondProto | CondDirection | CondRemotePort) &&
+                    std::any_of(rule->remotePorts.begin(), rule->remotePorts.end(), [&](const PortItem& item) {
+                        return item.from == port && item.to == port;
+                    });
+            }), "new program template omitted HTTP or HTTPS");
+        }
+        if (EqualNoCase(program.name, L"git-remote-https.exe")) {
+            IpAddr loopback;
+            CheckAuto(ParseIpAddr(L"127.0.0.1", loopback), "cannot parse Git loopback address");
+            CheckAuto(std::count_if(rules.begin(), rules.end(), [&](const Rule* rule) {
+                return rule->proto == Proto::Tcp && rule->dir == Dir::Unknown &&
+                    rule->conds == (CondProto | CondRemoteAddr | CondLocalAddr) &&
+                    rule->remoteAddrs.size() == 1 && rule->remoteAddrs[0].addr == loopback &&
+                    rule->remoteAddrs[0].prefix == -1 && rule->localAddrs.size() == 1 &&
+                    rule->localAddrs[0].addr == loopback && rule->localAddrs[0].prefix == -1 &&
+                    rule->remotePorts.empty() && rule->localPorts.empty();
+            }) == 1, "Git HTTPS generation omitted or duplicated the exact loopback rule");
+        }
+        if (EqualNoCase(program.name, L"iTunes.exe")) {
+            IpAddr loopback;
+            CheckAuto(ParseIpAddr(L"127.0.0.1", loopback), "cannot parse loopback address");
+            for (Proto proto : {Proto::Tcp, Proto::Udp}) {
+                CheckAuto(std::any_of(rules.begin(), rules.end(), [&](const Rule* rule) {
+                    return rule->proto == proto && rule->dir == Dir::Unknown &&
+                        rule->conds == (CondProto | CondRemoteAddr | CondLocalAddr) &&
+                        rule->remoteAddrs.size() == 1 && rule->remoteAddrs[0].addr == loopback &&
+                        rule->localAddrs.size() == 1 && rule->localAddrs[0].addr == loopback;
+                }), "iTunes generation omitted a restricted loopback rule");
+            }
+            CheckAuto(std::any_of(rules.begin(), rules.end(), [](const Rule* rule) {
+                return rule->proto == Proto::Udp && rule->dir == Dir::Unknown &&
+                    rule->conds == (CondProto | CondRemotePort | CondLocalPort) &&
+                    rule->remotePorts.size() == 1 && rule->remotePorts[0].from == 5353 &&
+                    rule->remotePorts[0].to == 5353 && rule->localPorts.size() == 1 &&
+                    rule->localPorts[0].from == 5353 && rule->localPorts[0].to == 5353;
+            }), "iTunes generation omitted the mDNS rule");
+        }
+    }
+    RuleStore store;
+    CheckAuto(RulePresets::ApplyGenerated(store, result.rules) == expectedRules &&
+              RulePresets::ApplyGenerated(store, result.rules) == 0 && store.Count() == expectedRules,
+              "new program rules were duplicated on repeated generation");
 }
 
 void GenerationDiscovery() {
@@ -1424,7 +1530,14 @@ int main(int argc, char** argv) {
                 std::pair{L"FeedbackHub.exe", "FeedbackHub.exe"},
                 std::pair{L"MSPUB.EXE", "MSPUB.EXE"},
                 std::pair{L"POWERPNT.EXE", "POWERPNT.EXE"},
-                std::pair{L"WINWORD.EXE", "WINWORD.EXE"}}) {
+                std::pair{L"WINWORD.EXE", "WINWORD.EXE"},
+                std::pair{L"BackgroundDownload.exe", "BackgroundDownload.exe"},
+                std::pair{L"Blend.exe", "Blend.exe"},
+                std::pair{L"PerfWatson2.exe", "PerfWatson2.exe"},
+                std::pair{L"iTunes.exe", "iTunes.exe"},
+                std::pair{L"Wireshark.exe", "Wireshark.exe"},
+                std::pair{L"SIHClient.exe", "SIHClient.exe"},
+                std::pair{L"taskhostw.exe", "taskhostw.exe"}}) {
             const auto count = std::count_if(result.rules.begin(), result.rules.end(), [&](const Rule& rule) {
                 return EqualNoCase(rule.appName, name);
             });
@@ -1453,13 +1566,14 @@ int main(int argc, char** argv) {
                                 L"YandexDisk4.exe", L"AnyDesk.exe", L"RustDesk.exe", L"TeamViewer.exe",
                                 L"TeamViewer_Service.exe", L"AppHostRegistrationVerifier.exe",
                                 L"backgroundTaskHost.exe", L"HxOutlook.exe", L"WWAHost.exe",
-                                L"Photos.exe", L"wslservice.exe"})
+                                L"Photos.exe", L"wslservice.exe", L"git-remote-https.exe"})
         CheckAuto(CopyFileW(systemExe.c_str(), dir.File(name).c_str(), FALSE),
                   "cannot copy captured-preset test executable");
     GeneratedIgmp(dir.File(L"generation.db"));
     GeneratedRules(signedPath, unsignedGeneratedPath, dir.File(L"TeamViewer_Service.exe"));
     GeneratedExecutableSelection(systemExe);
     GeneratedOfficeAndFeedback(systemExe, self);
+    GeneratedNewPrograms(systemExe, self);
     ServiceDllRegistry();
     GeneratedDoSvc(systemExe, unsignedGeneratedPath);
     GenerationDiscovery();
@@ -1490,9 +1604,11 @@ int main(int argc, char** argv) {
     AppStorageTestAccess::Disabled(signedPath);
     AppStorageTestAccess::EnableForExisting(signedPath);
     AppStorageTestAccess::Signed(signedPath);
-    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"CopilotApp.exe"), 48, 7, 5353, 5353,
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"CopilotApp.exe"), 48, 6, 5353, 5353,
                                               Proto::Udp, L"192.0.2.1", L"224.0.0.251");
-    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"explorer.exe"), 49, 2, 40049, 80,
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"git-remote-https.exe"), 76, 1, 28907, 28906,
+                                              Proto::Tcp, L"127.0.0.1", L"127.0.0.1");
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"explorer.exe"), 49, 1, 40049, 80,
                                               Proto::Tcp, L"192.0.2.1", L"198.51.100.1");
     AppStorageTestAccess::SignedCapturedPreset(dir.File(L"MpCmdRun.exe"), 50, 1, 40050, 443,
                                               Proto::Tcp, L"192.0.2.1", L"198.51.100.1");
@@ -1504,28 +1620,28 @@ int main(int argc, char** argv) {
                                               Proto::Tcp, L"192.0.2.1", L"23.12.158.97");
     AppStorageTestAccess::SignedCapturedPreset(dir.File(L"OneDrive.Sync.Service.exe"), 54, 1, 64156, 443,
                                               Proto::Tcp, L"192.0.2.1", L"23.103.242.129");
-    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"YandexDisk4.exe"), 55, 3, 53002, 53001,
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"YandexDisk4.exe"), 55, 2, 53002, 53001,
                                               Proto::Tcp, L"127.0.0.1", L"127.0.0.1");
-    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"AppHostRegistrationVerifier.exe"), 56, 2, 64233, 80,
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"AppHostRegistrationVerifier.exe"), 56, 1, 64233, 80,
                                               Proto::Tcp, L"192.0.2.1", L"104.18.21.226");
     AppStorageTestAccess::UnattributedService(dir.File(L"msiexec.exe"), 57, 80);
     AppStorageTestAccess::UnattributedService(dir.File(L"OneDriveUpdaterService.exe"), 58, 80);
     AppStorageTestAccess::UnattributedService(dir.File(L"OneDriveUpdaterService.exe"), 59, 443);
-    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"AnyDesk.exe"), 60, 4, 41060, 53,
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"AnyDesk.exe"), 60, 2, 41060, 53,
                                               Proto::Udp, L"192.0.2.1", L"1.1.1.1");
     AppStorageTestAccess::SignedCapturedPreset(dir.File(L"TeamViewer.exe"), 61, 2, 5939, 52480,
                                               Proto::Tcp, L"127.0.0.1", L"127.0.0.1");
-    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"RustDesk.exe"), 67, 5, 41067, 21116,
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"RustDesk.exe"), 67, 2, 41067, 21116,
                                               Proto::Udp, L"192.0.2.1", L"198.51.100.1");
-    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"RustDesk.exe"), 68, 5, 41068, 21115,
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"RustDesk.exe"), 68, 2, 41068, 21115,
                                               Proto::Tcp, L"192.0.2.1", L"198.51.100.1");
-    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"backgroundTaskHost.exe"), 69, 2, 41069, 80,
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"backgroundTaskHost.exe"), 69, 1, 41069, 80,
                                               Proto::Tcp, L"192.0.2.1", L"198.51.100.1");
-    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"HxOutlook.exe"), 70, 2, 41070, 80,
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"HxOutlook.exe"), 70, 1, 41070, 80,
                                               Proto::Tcp, L"192.0.2.1", L"198.51.100.1");
-    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"WWAHost.exe"), 73, 2, 41073, 80,
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"WWAHost.exe"), 73, 1, 41073, 80,
                                               Proto::Tcp, L"192.0.2.1", L"198.51.100.1");
-    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"WWAHost.exe"), 74, 2, 41074, 443,
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"WWAHost.exe"), 74, 1, 41074, 443,
                                               Proto::Tcp, L"192.0.2.1", L"198.51.100.1");
     AppStorageTestAccess::SignedCapturedPreset(dir.File(L"Photos.exe"), 71, 1, 41071, 443,
                                               Proto::Tcp, L"192.0.2.1", L"198.51.100.1");

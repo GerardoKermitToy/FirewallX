@@ -218,7 +218,39 @@ bool SameRule(const Rule& a, const Rule& b) {
     return true;
 }
 
+bool PortRangesCover(const std::vector<PortItem>& wider, const std::vector<PortItem>& narrower) {
+    const PortRanges outer = PortKeys(wider);
+    const PortRanges inner = PortKeys(narrower);
+    return std::all_of(inner.begin(), inner.end(), [&](const auto& range) {
+        return std::any_of(outer.begin(), outer.end(), [&](const auto& candidate) {
+            return candidate.first <= range.first && candidate.second >= range.second;
+        });
+    });
+}
+
+bool RuleCovers(const Rule& wider, const Rule& narrower) {
+    const uint32_t conds = MeaningfulConds(wider);
+    if (conds != MeaningfulConds(narrower)) return false;
+    Rule comparable = narrower;
+    comparable.remotePorts = wider.remotePorts;
+    comparable.localPorts = wider.localPorts;
+    if (!SameRule(wider, comparable)) return false;
+    return (!(conds & CondRemotePort) || PortRangesCover(wider.remotePorts, narrower.remotePorts)) &&
+           (!(conds & CondLocalPort) || PortRangesCover(wider.localPorts, narrower.localPorts));
+}
+
 } // анонимное пространство имён
+
+bool StrictlyCovers(const std::vector<Rule>& wider, const std::vector<Rule>& narrower) {
+    const auto covers = [](const std::vector<Rule>& outer, const std::vector<Rule>& inner) {
+        return std::all_of(inner.begin(), inner.end(), [&](const Rule& rule) {
+            return std::any_of(outer.begin(), outer.end(), [&](const Rule& candidate) {
+                return RuleCovers(candidate, rule);
+            });
+        });
+    };
+    return covers(wider, narrower) && !covers(narrower, wider);
+}
 
 std::vector<Choice> Suggest(const AskRequest& request) {
     std::vector<Choice> choices;

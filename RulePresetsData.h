@@ -39,14 +39,7 @@ inline constexpr PortItem pHttps[] = { {443, 443} };
 inline constexpr PortItem pHttp[] = { {80, 80} };
 inline constexpr PortItem pHttpsHttp[] = { {443, 443}, {80, 80} };
 inline constexpr PortItem pDns[] = { {53, 53} };
-inline constexpr PortItem pMail[] = { {465, 465}, {587, 587}, {993, 993}, {995, 995} };
-inline constexpr PortItem pStun[] = { {3478, 3481} };
-inline constexpr PortItem pZoom[] = { {8801, 8810} };
-inline constexpr PortItem pDiscord[] = { {50000, 65535} };
-inline constexpr PortItem pTelegram[] = { {5222, 5222} };
 inline constexpr PortItem pGooglePush[] = { {5228, 5228} };
-inline constexpr PortItem pSteamTcp[] = { {27015, 27050} };
-inline constexpr PortItem pSteamUdp[] = { {4380, 4380}, {27000, 27200} };
 inline constexpr PortItem pSsh[] = { {22, 22} };
 inline constexpr PortItem pRdp[] = { {3389, 3389} };
 inline constexpr PortItem pDhcp4Server[] = { {67, 67} };
@@ -59,6 +52,7 @@ inline constexpr PortItem pDelivery[] = { {7680, 7680} };
 inline constexpr PortItem pSsdp[] = { {1900, 1900} };
 inline constexpr PortItem pUpnp[] = { {2869, 2869} };
 inline constexpr PortItem pWsd[] = { {3702, 3702} };
+inline constexpr PortItem pSsdpWsd[] = { {1900, 1900}, {3702, 3702} };
 inline constexpr PortItem pWsdMetadata[] = { {5357, 5358} };
 inline constexpr PortItem pSmb[] = { {445, 445} };
 inline constexpr PortItem pNetbios[] = { {137, 137}, {138, 138} };
@@ -66,10 +60,17 @@ inline constexpr PortItem pKms[] = { {1688, 1688} };
 inline constexpr PortItem pPrint[] = { {515, 515}, {631, 631}, {9100, 9100} };
 inline constexpr PortItem pMdns[] = { {5353, 5353} };
 inline constexpr PortItem pLlmnr[] = { {5355, 5355} };
-inline constexpr PortItem pAnyDesk[] = { {6568, 6568} };
-inline constexpr PortItem pTeamViewer[] = { {5938, 5938} };
 inline constexpr PortItem pRustDesk21116[] = { {21116, 21116} };
-inline constexpr PortItem pRustDesk21115[] = { {21115, 21115} };
+inline constexpr PortItem pWebMail[] = { {443, 443}, {465, 465}, {587, 587}, {993, 993}, {995, 995} };
+inline constexpr PortItem pWebTelegram[] = { {443, 443}, {80, 80}, {5222, 5222} };
+inline constexpr PortItem pWebSteam[] = { {443, 443}, {80, 80}, {27015, 27050} };
+inline constexpr PortItem pWebAnyDesk[] = { {443, 443}, {80, 80}, {6568, 6568} };
+inline constexpr PortItem pWebRustDesk[] = { {443, 443}, {80, 80}, {21115, 21116} };
+inline constexpr PortItem pWebTeamViewer[] = { {443, 443}, {80, 80}, {5938, 5938} };
+inline constexpr PortItem pWebSsh[] = { {443, 443}, {80, 80}, {22, 22} };
+inline constexpr PortItem pQuicStunZoom[] = { {443, 443}, {3478, 3481}, {8801, 8810} };
+inline constexpr PortItem pQuicStunDiscord[] = { {443, 443}, {3478, 3481}, {50000, 65535} };
+inline constexpr PortItem pQuicSteam[] = { {443, 443}, {4380, 4380}, {27000, 27200} };
 
 inline constexpr Address aDns[] = { {AddrMacro::DnsServers}, {AddrMacro::MyComputer} };
 inline constexpr Address aDoh[] = { {AddrMacro::DnsServers} };
@@ -105,6 +106,9 @@ inline constexpr Address aMdns[] = {
 inline constexpr Address aIgmpMulticast[] = { {AddrMacro::None, L"224.0.0.0", 4} };
 inline constexpr Address aMdnsMulticast4[] = { {AddrMacro::None, L"224.0.0.251"} };
 inline constexpr Address aMdnsMulticast6[] = { {AddrMacro::None, L"ff02::fb"} };
+inline constexpr Address aMdnsMulticast46[] = {
+    {AddrMacro::None, L"224.0.0.251"}, {AddrMacro::None, L"ff02::fb"}
+};
 inline constexpr Address aLlmnr[] = {
     {AddrMacro::LocalNetwork}, {AddrMacro::MyComputer},
     {AddrMacro::None, L"224.0.0.252"}, {AddrMacro::None, L"ff02::1:3"}
@@ -116,6 +120,7 @@ inline constexpr IcmpTypeItem replies6[] = { {1, -1}, {3, -1}, {129, -1} };
 
 inline constexpr NetworkRule https = { IDS_PRESET_RULE_HTTPS, Proto::Tcp, Dir::Out, pHttps };
 inline constexpr NetworkRule http = { IDS_PRESET_RULE_HTTP, Proto::Tcp, Dir::Out, pHttp };
+inline constexpr NetworkRule httpsHttp = { IDS_PRESET_RULE_HTTPS_HTTP, Proto::Tcp, Dir::Out, pHttpsHttp };
 inline constexpr NetworkRule quic = { IDS_PRESET_RULE_QUIC, Proto::Udp, Dir::Out, pHttps };
 inline constexpr NetworkRule dnsUdp = {
     IDS_PRESET_RULE_DNS_UDP, Proto::Udp, Dir::Out, pDns, {}, aDns
@@ -168,6 +173,7 @@ inline constexpr NetworkRule loopbackTcp4HostAny = {
     IDS_PRESET_RULE_LOOPBACK_TCP_IPV4, Proto::Tcp, Dir::Unknown, {}, {}, aLoopback4Host,
     {}, RuleAction::Allow, aLoopback4Host
 };
+inline constexpr NetworkRule gitHttpsLoopback[] = { loopbackTcp4HostAny };
 inline constexpr NetworkRule systemTcpLoopback[] = {
     loopbackTcp4HostAny,
     {IDS_PRESET_RULE_LOOPBACK_TCP_IPV6, Proto::Tcp, Dir::Unknown, {}, {}, aLoopback6Host,
@@ -215,11 +221,11 @@ inline constexpr NetworkRule deliveryOut = {
 inline constexpr NetworkRule deliveryIn = {
     IDS_PRESET_RULE_DELIVERY, Proto::Tcp, Dir::In, {}, pDelivery, aLan
 };
-inline constexpr NetworkRule steamTcp = {
-    IDS_PRESET_RULE_STEAM_TCP, Proto::Tcp, Dir::Out, pSteamTcp
+inline constexpr NetworkRule webSteamTcp = {
+    IDS_PRESET_RULE_WEB_STEAM_TCP, Proto::Tcp, Dir::Out, pWebSteam
 };
-inline constexpr NetworkRule steamUdp = {
-    IDS_PRESET_RULE_STEAM_UDP, Proto::Udp, Dir::Out, pSteamUdp
+inline constexpr NetworkRule quicSteamUdp = {
+    IDS_PRESET_RULE_QUIC_STEAM_UDP, Proto::Udp, Dir::Out, pQuicSteam
 };
 
 inline constexpr NetworkRule igmp[] = {
@@ -230,7 +236,7 @@ inline constexpr NetworkRule igmpIn[] = {
       RuleAction::Allow, aIgmpMulticast }
 };
 inline constexpr NetworkRule browserHttps[] = { https, quic, dnsUdp, dnsTcp };
-inline constexpr NetworkRule web[] = { https, http, quic, dnsUdp, dnsTcp };
+inline constexpr NetworkRule web[] = { httpsHttp, quic, dnsUdp, dnsTcp };
 inline constexpr NetworkRule chromeMdns[] = {
     {IDS_PRESET_RULE_MDNS, Proto::Udp, Dir::Out, pMdns, pMdns, aMdns}
 };
@@ -241,32 +247,29 @@ inline constexpr NetworkRule chromePush[] = {
     {IDS_PRESET_RULE_GOOGLE_PUSH, Proto::Tcp, Dir::Out, pGooglePush}
 };
 inline constexpr NetworkRule firefoxHttps[] = { https, quic, dnsUdp, dnsTcp, loopbackTcp };
-inline constexpr NetworkRule firefoxWeb[] = { https, http, quic, dnsUdp, dnsTcp, loopbackTcp };
+inline constexpr NetworkRule firefoxWeb[] = { httpsHttp, quic, dnsUdp, dnsTcp, loopbackTcp };
 inline constexpr NetworkRule braveHttps[] = { https, quic, dnsUdp, dnsTcp, mdnsOut, mdnsIn };
-inline constexpr NetworkRule braveWeb[] = { https, http, quic, dnsUdp, dnsTcp, mdnsOut, mdnsIn };
+inline constexpr NetworkRule braveWeb[] = { httpsHttp, quic, dnsUdp, dnsTcp, mdnsOut, mdnsIn };
 inline constexpr NetworkRule mail[] = {
-    https, dnsUdp, dnsTcp, {IDS_PRESET_RULE_MAIL, Proto::Tcp, Dir::Out, pMail}
+    {IDS_PRESET_RULE_WEB_MAIL_TCP, Proto::Tcp, Dir::Out, pWebMail}, dnsUdp, dnsTcp
 };
 inline constexpr NetworkRule chat[] = {
-    https, http, quic, dnsUdp, dnsTcp,
-    {IDS_PRESET_RULE_STUN, Proto::Udp, Dir::Out, pStun},
-    {IDS_PRESET_RULE_ZOOM, Proto::Udp, Dir::Out, pZoom}
+    httpsHttp, {IDS_PRESET_RULE_QUIC_STUN_ZOOM_UDP, Proto::Udp, Dir::Out, pQuicStunZoom},
+    dnsUdp, dnsTcp
 };
 inline constexpr NetworkRule discord[] = {
-    https, quic, dnsUdp, dnsTcp,
-    {IDS_PRESET_RULE_STUN, Proto::Udp, Dir::Out, pStun},
-    {IDS_PRESET_RULE_DISCORD_VOICE, Proto::Udp, Dir::Out, pDiscord}
+    https, {IDS_PRESET_RULE_QUIC_STUN_DISCORD_UDP, Proto::Udp, Dir::Out, pQuicStunDiscord},
+    dnsUdp, dnsTcp
 };
 inline constexpr NetworkRule discordHttp[] = { http };
 inline constexpr NetworkRule telegram[] = {
-    https, http, dnsUdp, dnsTcp,
-    {IDS_PRESET_RULE_TELEGRAM, Proto::Tcp, Dir::Out, pTelegram}
+    {IDS_PRESET_RULE_WEB_TELEGRAM_TCP, Proto::Tcp, Dir::Out, pWebTelegram}, dnsUdp, dnsTcp
 };
 inline constexpr NetworkRule steam[] = {
-    https, http, quic, dnsUdp, dnsTcp, steamTcp, steamUdp, loopbackTcpIn
+    webSteamTcp, quicSteamUdp, dnsUdp, dnsTcp, loopbackTcpIn
 };
 inline constexpr NetworkRule steamWebHelper[] = {
-    https, http, quic, dnsUdp, dnsTcp, steamTcp, steamUdp,
+    webSteamTcp, quicSteamUdp, dnsUdp, dnsTcp,
     ssdpOut, ssdpIn, mdnsOut, mdnsIn, loopbackTcpOut
 };
 inline constexpr NetworkRule steamErrorReporter[] = { https };
@@ -280,21 +283,25 @@ inline constexpr NetworkRule nvidiaNgxUpdate[] = { loopbackTcpOut, https };
 inline constexpr NetworkRule lsassHttp[] = { http };
 inline constexpr NetworkRule httpsOnly[] = { https };
 inline constexpr NetworkRule httpOnly[] = { http };
-inline constexpr NetworkRule httpsAndHttp[] = { https, http };
-inline constexpr NetworkRule httpsOrHttp[] = {
-    {IDS_PRESET_RULE_HTTPS_HTTP, Proto::Tcp, Dir::Out, pHttpsHttp}
-};
+inline constexpr NetworkRule httpsOrHttp[] = { httpsHttp };
 inline constexpr NetworkRule webview2[] = {
     https, quic, {IDS_PRESET_RULE_DNS_UDP, Proto::Udp, Dir::Out, pDns, {}, aDoh}
 };
 inline constexpr NetworkRule webview2Mdns[] = {
     {IDS_PRESET_RULE_MDNS, Proto::Udp, Dir::Unknown, pMdns, pMdns}
 };
+// Для iTunes ограничиваем локальный обмен точным IPv4-адресом на обоих концах.
+inline constexpr NetworkRule iTunes[] = {
+    loopbackTcp4HostAny,
+    {IDS_PRESET_RULE_LOOPBACK_UDP, Proto::Udp, Dir::Unknown, {}, {}, aLoopback4Host,
+        {}, RuleAction::Allow, aLoopback4Host},
+    httpsHttp,
+    webview2Mdns[0]
+};
 // mDNS ограничен показанными multicast-адресами и портами; DNS — системными серверами.
 inline constexpr NetworkRule copilotApp[] = {
     {IDS_PRESET_RULE_DNS_UDP, Proto::Udp, Dir::Out, pDns, {}, aDoh},
-    {IDS_PRESET_RULE_MDNS_OUT_IPV4, Proto::Udp, Dir::Out, pMdns, pMdns, aMdnsMulticast4},
-    {IDS_PRESET_RULE_MDNS_OUT_IPV6, Proto::Udp, Dir::Out, pMdns, pMdns, aMdnsMulticast6},
+    {IDS_PRESET_RULE_MDNS, Proto::Udp, Dir::Out, pMdns, pMdns, aMdnsMulticast46},
     https,
     {IDS_PRESET_RULE_MDNS_IN_IPV4, Proto::Udp, Dir::In, {}, pMdns, {}, {},
         RuleAction::Allow, aMdnsMulticast4},
@@ -304,15 +311,13 @@ inline constexpr NetworkRule copilotApp[] = {
 };
 // Локальный обмен ограничен точным IPv4-адресом на обоих концах.
 inline constexpr NetworkRule obsStudio[] = { loopbackTcp4HostOut, https };
-inline constexpr NetworkRule yandexDisk[] = { loopbackTcp4HostOut, https, http };
+inline constexpr NetworkRule yandexDisk[] = { loopbackTcp4HostOut, httpsHttp };
 inline constexpr NetworkRule anyDesk[] = {
-    https, http, {IDS_PRESET_RULE_DNS_UDP, Proto::Udp, Dir::Out, pDns, {}, aAnyDeskDns},
-    {IDS_PRESET_RULE_ANYDESK_TCP, Proto::Tcp, Dir::Out, pAnyDesk}
+    {IDS_PRESET_RULE_WEB_ANYDESK_TCP, Proto::Tcp, Dir::Out, pWebAnyDesk},
+    {IDS_PRESET_RULE_DNS_UDP, Proto::Udp, Dir::Out, pDns, {}, aAnyDeskDns}
 };
 inline constexpr NetworkRule rustDesk[] = {
-    {IDS_PRESET_RULE_RUSTDESK_TCP_21116, Proto::Tcp, Dir::Out, pRustDesk21116},
-    http, https,
-    {IDS_PRESET_RULE_RUSTDESK_TCP_21115, Proto::Tcp, Dir::Out, pRustDesk21115},
+    {IDS_PRESET_RULE_WEB_RUSTDESK_TCP, Proto::Tcp, Dir::Out, pWebRustDesk},
     {IDS_PRESET_RULE_RUSTDESK_UDP_21116, Proto::Udp, Dir::Out, pRustDesk21116}
 };
 inline constexpr NetworkRule teamViewer[] = { loopbackTcp4HostOut, https };
@@ -328,8 +333,8 @@ inline constexpr NetworkRule vmware[] = {
 };
 // Сохраняем показанные адреса и парные порты mDNS без привязки к интерфейсу.
 inline constexpr NetworkRule teamViewerService[] = {
-    http, https, loopbackTcp4HostIn,
-    {IDS_PRESET_RULE_TEAMVIEWER_TCP, Proto::Tcp, Dir::Out, pTeamViewer},
+    {IDS_PRESET_RULE_WEB_TEAMVIEWER_TCP, Proto::Tcp, Dir::Out, pWebTeamViewer},
+    loopbackTcp4HostIn,
     {IDS_PRESET_RULE_MDNS_IN_IPV4, Proto::Udp, Dir::In, pMdns, pMdns, {}, {},
         RuleAction::Allow, aMdnsMulticast4},
     {IDS_PRESET_RULE_MDNS_OUT_IPV6, Proto::Udp, Dir::Out, pMdns, pMdns, aMdnsMulticast6, {},
@@ -352,8 +357,7 @@ inline constexpr NetworkRule torrent[] = {
     {IDS_PRESET_RULE_TORRENT_UDP, Proto::Udp, Dir::Unknown}
 };
 inline constexpr NetworkRule git[] = {
-    https, http, dnsUdp, dnsTcp,
-    {IDS_PRESET_RULE_SSH, Proto::Tcp, Dir::Out, pSsh}
+    {IDS_PRESET_RULE_WEB_SSH_TCP, Proto::Tcp, Dir::Out, pWebSsh}, dnsUdp, dnsTcp
 };
 inline constexpr NetworkRule ssh[] = {
     dnsUdp, dnsTcp, {IDS_PRESET_RULE_SSH, Proto::Tcp, Dir::Out, pSsh}
@@ -381,16 +385,16 @@ inline constexpr NetworkRule dhcpClientPorts[] = {
     {IDS_PRESET_RULE_DHCP_CLIENT_PORTS, Proto::Udp, Dir::Unknown, pDhcp4Server, pDhcp4Client}
 };
 inline constexpr NetworkRule time[] = { ntp, dnsUdp, dnsTcp };
-inline constexpr NetworkRule systemWeb[] = { https, http, dnsUdp, dnsTcp };
+inline constexpr NetworkRule systemWeb[] = { httpsHttp, dnsUdp, dnsTcp };
 inline constexpr NetworkRule runtimeBroker[] = { https };
 inline constexpr NetworkRule capabilityAccess[] = { http };
-inline constexpr NetworkRule bits[] = { https, http, dnsUdp, dnsTcp, winrmLoopback };
+inline constexpr NetworkRule bits[] = { httpsHttp, dnsUdp, dnsTcp, winrmLoopback };
 inline constexpr NetworkRule braveUpdate[] = { https };
 // LxpSvc: только HTTPS, без HTTP, QUIC и привязки к текущему IP сервера.
 inline constexpr NetworkRule languagePacks[] = { https };
 inline constexpr NetworkRule deliveryLan[] = { deliveryOut, deliveryIn };
 inline constexpr NetworkRule deliveryFull[] = {
-    https, http, dnsUdp, dnsTcp, deliveryOut, deliveryIn
+    httpsHttp, dnsUdp, dnsTcp, deliveryOut, deliveryIn
 };
 inline constexpr NetworkRule ssdp[] = {
     ssdpOut, ssdpIn, {IDS_PRESET_RULE_UPNP, Proto::Tcp, Dir::In, {}, pUpnp, aLan}
@@ -399,7 +403,9 @@ inline constexpr NetworkRule discovery[] = { wsdOut, wsdIn };
 // fdPHost ищет устройства и читает их метаданные, но не получает общий
 // веб-доступ или разрешение на обнаружение узлов за пределами локальной сети.
 inline constexpr NetworkRule functionDiscoveryHost[] = {
-    wsdOut, wsdIn, ssdpOut, ssdpIn, wsdMetadata
+    {IDS_PRESET_RULE_SSDP_WSD_OUT, Proto::Udp, Dir::Out, pSsdpWsd, {}, aDiscovery},
+    {IDS_PRESET_RULE_SSDP_WSD_IN, Proto::Udp, Dir::In, {}, pSsdpWsd, aDiscovery},
+    wsdMetadata
 };
 inline constexpr NetworkRule smbClient[] = {
     {IDS_PRESET_RULE_SMB_OUT, Proto::Tcp, Dir::Out, pSmb, {}, aLan}
@@ -415,17 +421,17 @@ inline constexpr NetworkRule rdpService[] = {
     {IDS_PRESET_RULE_RDP_UDP, Proto::Udp, Dir::In, {}, pRdp, aLan}
 };
 inline constexpr NetworkRule svchost[] = {
-    dnsUdp, dnsTcp, dhcp4, dhcp6, dhcp4In, dhcp6In, ntp, https, http
+    dnsUdp, dnsTcp, dhcp4, dhcp6, dhcp4In, dhcp6In, ntp, httpsHttp
 };
 // SMB и UDP/443 ядра допускаются только внутри loopback с обеих сторон.
 inline constexpr NetworkRule systemSmbLoopback[] = {
-    {IDS_PRESET_RULE_SMB_OUT, Proto::Tcp, Dir::Out, pSmb, {}, aLoopback,
+    {IDS_PRESET_RULE_SMB_OUT, Proto::Tcp, Dir::Unknown, pSmb, {}, aLoopback,
         {}, RuleAction::Allow, aLoopback},
-    {IDS_PRESET_RULE_SMB_IN, Proto::Tcp, Dir::In, {}, pSmb, aLoopback,
+    {IDS_PRESET_RULE_SMB_IN, Proto::Tcp, Dir::Unknown, {}, pSmb, aLoopback,
         {}, RuleAction::Allow, aLoopback}
 };
 inline constexpr NetworkRule systemUdpLoopback[] = {
-    {IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP, Proto::Udp, Dir::Out, pHttps, {}, aLoopback,
+    {IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP, Proto::Udp, Dir::Unknown, pHttps, {}, aLoopback,
         {}, RuleAction::Allow, aLoopback}
 };
 // Блокировка только по локальным портам, независимо от направления и адресов.
@@ -483,7 +489,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_CLOUD, L"onedrive.exe;dropbox.exe;googledrivefs.exe", browserHttps},
     {IDS_PRESET_ONEDRIVE_HTTP, L"OneDrive.exe", httpOnly},
     {IDS_PRESET_ONEDRIVE_SYNC, L"OneDrive.Sync.Service.exe", httpsOnly},
-    {IDS_PRESET_ONEDRIVE_UPDATER, L"OneDriveUpdaterService.exe", httpsAndHttp,
+    {IDS_PRESET_ONEDRIVE_UPDATER, L"OneDriveUpdaterService.exe", httpsOrHttp,
         Host::AppService, L"OneDrive Updater Service"},
     {IDS_PRESET_YANDEX_DISK, L"YandexDisk4.exe", yandexDisk},
     {IDS_PRESET_MSI_INSTALLER, L"msiexec.exe", httpOnly, Host::AppService, L"msiserver"},
@@ -491,19 +497,26 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_PWSH_TCP_LOOPBACK, L"pwsh.exe", pwshTcpLoopback},
     {IDS_PRESET_SPP_EXT_COM_OBJ, L"SppExtComObj.exe", sppExtComObj},
     {IDS_PRESET_VISUAL_STUDIO_HTTPS, L"devenv.exe", httpsOnly},
-    {IDS_PRESET_VISUAL_STUDIO_WEB, L"devenv.exe", httpsAndHttp},
+    {IDS_PRESET_VISUAL_STUDIO_WEB, L"devenv.exe", httpsOrHttp},
+    {IDS_PRESET_BACKGROUND_DOWNLOAD, L"BackgroundDownload.exe", httpsOrHttp},
+    {IDS_PRESET_BLEND, L"Blend.exe", httpsOrHttp},
+    {IDS_PRESET_PERFWATSON, L"PerfWatson2.exe", httpsOrHttp},
+    {IDS_PRESET_ITUNES, L"iTunes.exe", iTunes},
+    {IDS_PRESET_WIRESHARK, L"Wireshark.exe", httpsOrHttp},
+    {IDS_PRESET_SIH_CLIENT, L"SIHClient.exe", httpsOrHttp},
     {IDS_PRESET_WINDOWS_PACKAGE_MANAGER, L"windowspackagemanagerserver.exe", systemWeb},
     {IDS_PRESET_MICROSOFT_STORE, L"winstore.app.exe", systemWeb},
     {IDS_PRESET_IGMP, L"", igmp, Host::PostAppPidZero},
     {IDS_PRESET_IGMP_IN, L"", igmpIn, Host::PostAppPidZero},
     {IDS_PRESET_RUNTIME_BROKER, L"RuntimeBroker.exe", runtimeBroker},
-    {IDS_PRESET_WSL_SERVICE, L"wslservice.exe", httpsAndHttp, Host::AppService, L"WSLService"},
+    {IDS_PRESET_WSL_SERVICE, L"wslservice.exe", httpsOrHttp, Host::AppService, L"WSLService"},
     {IDS_PRESET_TASK_HOST, L"taskhostw.exe", httpsOnly},
-    {IDS_PRESET_APPHOST_VERIFIER, L"AppHostRegistrationVerifier.exe", httpsAndHttp},
-    {IDS_PRESET_BACKGROUND_TASK_HOST, L"backgroundTaskHost.exe", httpsAndHttp},
-    {IDS_PRESET_WWA_HOST, L"WWAHost.exe", httpsAndHttp},
-    {IDS_PRESET_BACKGROUND_TRANSFER, L"BackgroundTransferHost.exe", httpsAndHttp},
-    {IDS_PRESET_EXPLORER, L"explorer.exe", httpsAndHttp},
+    {IDS_PRESET_TASK_HOST_HTTP, L"taskhostw.exe", httpOnly},
+    {IDS_PRESET_APPHOST_VERIFIER, L"AppHostRegistrationVerifier.exe", httpsOrHttp},
+    {IDS_PRESET_BACKGROUND_TASK_HOST, L"backgroundTaskHost.exe", httpsOrHttp},
+    {IDS_PRESET_WWA_HOST, L"WWAHost.exe", httpsOrHttp},
+    {IDS_PRESET_BACKGROUND_TRANSFER, L"BackgroundTransferHost.exe", httpsOrHttp},
+    {IDS_PRESET_EXPLORER, L"explorer.exe", httpsOrHttp},
     {IDS_PRESET_MOUSO_CORE_WORKER, L"MoUsoCoreWorker.exe", httpsOnly},
     {IDS_PRESET_PING_SENDER, L"pingsender.exe", httpsOnly},
     {IDS_PRESET_SYSTEM_SETTINGS, L"SystemSettings.exe", httpsOnly},
@@ -513,14 +526,14 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_M365_COPILOT, L"M365Copilot.exe", httpsOnly},
     {IDS_PRESET_COPILOT_APP, L"CopilotApp.exe", copilotApp},
     {IDS_PRESET_DEFENDER_COMMAND, L"MpCmdRun.exe", httpsOnly},
-    {IDS_PRESET_MSN_NEWS, L"Microsoft.Msn.News.exe", httpsAndHttp},
-    {IDS_PRESET_MSN_WEATHER, L"Microsoft.Msn.Weather.exe", httpsAndHttp},
-    {IDS_PRESET_MICROSOFT_NOTES, L"Microsoft.Notes.exe", httpsAndHttp},
+    {IDS_PRESET_MSN_NEWS, L"Microsoft.Msn.News.exe", httpsOrHttp},
+    {IDS_PRESET_MSN_WEATHER, L"Microsoft.Msn.Weather.exe", httpsOrHttp},
+    {IDS_PRESET_MICROSOFT_NOTES, L"Microsoft.Notes.exe", httpsOrHttp},
     {IDS_PRESET_PHONE_EXPERIENCE, L"PhoneExperienceHost.exe", httpsOnly},
     {IDS_PRESET_SMARTSCREEN, L"smartscreen.exe", httpsOnly},
-    {IDS_PRESET_WEB_EXPERIENCE, L"WebExperienceHostApp.exe", httpsAndHttp},
+    {IDS_PRESET_WEB_EXPERIENCE, L"WebExperienceHostApp.exe", httpsOrHttp},
     {IDS_PRESET_WINDOWS_BACKUP, L"WindowsBackupClient.exe", httpsOnly},
-    {IDS_PRESET_XBOX_PC_APP, L"XboxPcApp.exe", httpsAndHttp},
+    {IDS_PRESET_XBOX_PC_APP, L"XboxPcApp.exe", httpsOrHttp},
     {IDS_PRESET_XBOX_PC_APP_FT, L"XboxPcAppFT.exe", httpsOnly},
     {IDS_PRESET_FEEDBACK_HUB, L"FeedbackHub.exe", httpsOrHttp},
     {IDS_PRESET_WUDF_HOST, L"WUDFHost.exe", loopbackTcpOnly},
@@ -530,29 +543,30 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_POWERPOINT, L"POWERPNT.EXE", httpsOrHttp},
     {IDS_PRESET_WORD, L"WINWORD.EXE", httpsOrHttp},
     {IDS_PRESET_WHITEBOARD, L"MicrosoftWhiteboard.exe", httpsOnly},
-    {IDS_PRESET_HX_OUTLOOK, L"HxOutlook.exe", httpsAndHttp},
+    {IDS_PRESET_HX_OUTLOOK, L"HxOutlook.exe", httpsOrHttp},
     {IDS_PRESET_PHOTOS, L"Photos.exe", httpsOnly},
     {IDS_PRESET_HX_CALENDAR, L"HxCalendarAppImm.exe", httpsOnly},
-    {IDS_PRESET_START_MENU, L"StartMenuExperienceHost.exe", httpsAndHttp},
+    {IDS_PRESET_START_MENU, L"StartMenuExperienceHost.exe", httpsOrHttp},
     {IDS_PRESET_XPD_AGENT, L"xpdAgent.exe", httpsOnly},
-    {IDS_PRESET_TODO, L"Todo.exe", httpsAndHttp},
+    {IDS_PRESET_TODO, L"Todo.exe", httpsOrHttp},
     {IDS_PRESET_CLIPCHAMP, L"Clipchamp.exe", httpsOnly},
-    {IDS_PRESET_GAME_BAR, L"GameBar.exe", httpsAndHttp},
+    {IDS_PRESET_GAME_BAR, L"GameBar.exe", httpsOrHttp},
     {IDS_PRESET_INTEL_GRAPHICS, L"IntelGraphicsSoftware.exe", httpsOnly},
     {IDS_PRESET_INTEL_IPF, L"ipfsvc.exe", loopbackTcpOnly, Host::AppService, L"dttui;ipfui"},
     {IDS_PRESET_EDGE_UPDATE, L"MicrosoftEdgeUpdate.exe", httpsOnly},
-    {IDS_PRESET_DEFENDER_CORE, L"MpDefenderCoreService.exe", httpsAndHttp,
+    {IDS_PRESET_DEFENDER_CORE, L"MpDefenderCoreService.exe", httpsOrHttp,
         Host::AppService, L"MDCoreSvc"},
     {IDS_PRESET_TEAMS_UPDATE, L"ms-teamsupdate.exe", httpsOnly},
     {IDS_PRESET_WEBVIEW2, L"msedgewebview2.exe", webview2},
     {IDS_PRESET_WEBVIEW2_MDNS, L"msedgewebview2.exe", webview2Mdns},
     {IDS_PRESET_OFFICE_CLIENT, L"OfficeC2RClient.exe", httpsOnly},
-    {IDS_PRESET_OFFICE_SERVICE, L"OfficeClickToRun.exe", httpsAndHttp,
+    {IDS_PRESET_OFFICE_SERVICE, L"OfficeClickToRun.exe", httpsOrHttp,
         Host::AppService, L"ClickToRunSvc"},
     {IDS_PRESET_ONENOTE, L"ONENOTE.EXE", httpsOnly},
     {IDS_PRESET_SEARCH_HOST, L"SearchHost.exe", httpsOnly},
-    {IDS_PRESET_SOLITAIRE, L"Solitaire.exe", httpsAndHttp},
+    {IDS_PRESET_SOLITAIRE, L"Solitaire.exe", httpsOrHttp},
     {IDS_PRESET_GIT, L"git.exe;git-remote-https.exe;git-remote-http.exe", git},
+    {IDS_PRESET_GIT_HTTPS_LOOPBACK, L"git-remote-https.exe", gitHttpsLoopback},
     {IDS_PRESET_SSH, L"ssh.exe;putty.exe;winscp.exe;sftp.exe;scp.exe", ssh},
     {IDS_PRESET_RDP_CLIENT, L"mstsc.exe", rdpClient},
     {IDS_PRESET_DIAGNOSTICS, L"ping.exe;tracert.exe;pathping.exe", diagnostics},
@@ -570,7 +584,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_PUSH_SERVICE, L"svchost.exe", httpsOnly, Host::Service, L"WpnService"},
     {IDS_PRESET_PUSH_SERVICE, L"svchost.exe", httpsOnly, Host::Service, L"WpnUserService_*"},
     {IDS_PRESET_LICENSE_MANAGER, L"svchost.exe", httpsOnly, Host::Service, L"LicenseManager"},
-    {IDS_PRESET_MICROSOFT_ACCOUNT, L"svchost.exe", httpsAndHttp, Host::Service, L"wlidsvc"},
+    {IDS_PRESET_MICROSOFT_ACCOUNT, L"svchost.exe", httpsOrHttp, Host::Service, L"wlidsvc"},
     {IDS_PRESET_WAAS_MEDIC, L"svchost.exe", httpsOnly, Host::Service, L"WaaSMedicSvc"},
     {IDS_PRESET_DIAGTRACK_BLOCK, L"svchost.exe", httpsBlock, Host::Service, L"DiagTrack"},
     {IDS_PRESET_SHARED_ACCESS_DHCP, L"svchost.exe", sharedAccessDhcp, Host::Service, L"SharedAccess"},
