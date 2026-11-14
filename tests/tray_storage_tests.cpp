@@ -52,6 +52,7 @@ BOOL TestCloseClipboard() {
 
 #include <initializer_list>
 #include <future>
+#include <shlobj.h>
 
 void TestDebugWindow();
 void TestSettingsNdis();
@@ -261,6 +262,7 @@ struct AppStorageTestAccess {
         int expectedRow = -1;
         std::wstring expectedName;
         bool inspected = false;
+        bool disableAndSave = false;
         std::string error;
 
         static void CALLBACK Tick(HWND, UINT, UINT_PTR timer, DWORD) {
@@ -289,7 +291,12 @@ struct AppStorageTestAccess {
                     probe.error = "selected rule is incorrect or not fully visible";
                 }
             }
-            PostMessageW(dialog, WM_COMMAND, IDCANCEL, 0);
+            if (probe.disableAndSave && probe.error.empty()) {
+                ListView_SetCheckState(list, 0, FALSE);
+                PostMessageW(dialog, WM_COMMAND, IDOK, 0);
+            } else {
+                PostMessageW(dialog, WM_COMMAND, IDCANCEL, 0);
+            }
         }
     };
 
@@ -301,7 +308,7 @@ struct AppStorageTestAccess {
         }
         auto* app = reinterpret_cast<App*>(GetWindowLongPtrW(window, GWLP_USERDATA));
         if (app && app->list_.hwnd()) {
-            if (message == WM_SHOWWINDOW || message == WM_SIZE)
+            if (message == WM_SHOWWINDOW || message == WM_SIZE || message == WM_DROPFILES)
                 return app->WndProc(window, message, wp, lp);
             if (message == WM_NOTIFY) {
                 LRESULT result = 0;
@@ -514,6 +521,109 @@ struct AppStorageTestAccess {
         std::cout << "rule selection: matching groups, scrolling and fallbacks passed\n";
     }
 
+    static void TestDropFiles(App& app) {
+        struct TemporaryFiles {
+            std::wstring directory, executable, emptyExecutable, text, executableDirectory;
+            ~TemporaryFiles() {
+                DeleteFileW(executable.c_str());
+                DeleteFileW(emptyExecutable.c_str());
+                DeleteFileW(text.c_str());
+                RemoveDirectoryW(executableDirectory.c_str());
+                RemoveDirectoryW(directory.c_str());
+                DeleteFileW(directory.c_str());
+            }
+        } files;
+        wchar_t tempPath[MAX_PATH]{}, tempName[MAX_PATH]{};
+        const DWORD tempLength = GetTempPathW(static_cast<DWORD>(std::size(tempPath)), tempPath);
+        CheckTray(tempLength && tempLength < std::size(tempPath) &&
+                  GetTempFileNameW(tempPath, L"fxd", 0, tempName),
+                  "could not create temporary drop directory");
+        files.directory = tempName;
+        CheckTray(DeleteFileW(files.directory.c_str()) && CreateDirectoryW(files.directory.c_str(), nullptr),
+                  "could not create temporary drop directory");
+        files.executable = files.directory + L"\\Пример.ExE";
+        files.emptyExecutable = files.directory + L"\\empty.exe";
+        files.text = files.directory + L"\\other.txt";
+        files.executableDirectory = files.directory + L"\\folder.exe";
+        for (const auto& path : {files.executable, files.emptyExecutable, files.text}) {
+            const HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                                            CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+            CheckTray(file != INVALID_HANDLE_VALUE, "could not create a dropped test file");
+            CloseHandle(file);
+        }
+        CheckTray(CreateDirectoryW(files.executableDirectory.c_str(), nullptr),
+                  "could not create a dropped test directory");
+
+        AcceptFileDrops(app.hwnd_);
+        CheckTray((GetWindowLongPtrW(app.hwnd_, GWL_EXSTYLE) & WS_EX_ACCEPTFILES) != 0,
+                  "main window does not accept dropped files");
+        for (const UINT message : std::initializer_list<UINT>{WM_DROPFILES, WM_COPYDATA, 0x0049}) {
+            CHANGEFILTERSTRUCT filter{sizeof(filter)};
+            CheckTray(ChangeWindowMessageFilterEx(app.hwnd_, message, MSGFLT_ALLOW, &filter) &&
+                      (filter.ExtStatus == MSGFLTINFO_ALREADYALLOWED_FORWND ||
+                       filter.ExtStatus == MSGFLTINFO_ALLOWED_HIGHER),
+                      "main window did not allow a file-drop message");
+        }
+
+        Rule rule;
+        rule.autoName = false;
+        rule.name = L"Dropped executable rule";
+        rule.enabled = true;
+        app.rules_.Replace(RuleScope::App, files.executable, L"Пример.ExE", {rule});
+        const auto send = [&](std::initializer_list<std::wstring> paths, int expectedCount,
+                              bool disableAndSave = false) {
+            size_t characters = 1;
+            for (const auto& path : paths) characters += path.size() + 1;
+            HGLOBAL drop = GlobalAlloc(GHND, sizeof(DROPFILES) + characters * sizeof(wchar_t));
+            CheckTray(drop != nullptr, "could not allocate dropped file list");
+            auto* data = static_cast<DROPFILES*>(GlobalLock(drop));
+            if (!data) {
+                GlobalFree(drop);
+                CheckTray(false, "could not lock dropped file list");
+            }
+            data->pFiles = sizeof(DROPFILES);
+            data->fWide = TRUE;
+            auto* next = reinterpret_cast<wchar_t*>(reinterpret_cast<BYTE*>(data) + sizeof(DROPFILES));
+            for (const auto& path : paths) {
+                next = std::copy(path.begin(), path.end(), next);
+                *next++ = L'\0';
+            }
+            *next = L'\0';
+            GlobalUnlock(drop);
+
+            RuleSelectionProbe probe;
+            probe.expectedCount = expectedCount;
+            probe.expectedRow = expectedCount > 0 ? 0 : -1;
+            probe.expectedName = rule.name;
+            probe.disableAndSave = disableAndSave;
+            RuleSelectionProbe::active = &probe;
+            const UINT_PTR timer = SetTimer(nullptr, 0, 20, RuleSelectionProbe::Tick);
+            if (!timer) {
+                RuleSelectionProbe::active = nullptr;
+                GlobalFree(drop);
+                CheckTray(false, "could not start dropped file probe");
+            }
+            SendMessageW(app.hwnd_, WM_DROPFILES, reinterpret_cast<WPARAM>(drop), 0);
+            KillTimer(nullptr, timer);
+            RuleSelectionProbe::active = nullptr;
+            CheckTray(probe.inspected == (expectedCount >= 0), "unexpected dropped file editor state");
+            if (!probe.error.empty()) throw std::runtime_error(probe.error);
+        };
+
+        const std::wstring missing = files.directory + L"\\missing.exe";
+        send({files.text, files.executableDirectory, missing, files.executable}, 1, true);
+        const auto saved = app.rules_.ForApp(files.executable);
+        CheckTray(saved.size() == 1 && !saved.front().enabled,
+                  "changes made to dropped executable rules were not saved");
+        send({files.emptyExecutable, files.executable}, 0);
+        send({files.text, files.executableDirectory, missing}, -1);
+        EnableWindow(app.hwnd_, FALSE);
+        send({files.executable}, -1);
+        EnableWindow(app.hwnd_, TRUE);
+        for (const Rule& savedRule : app.rules_.All()) app.rules_.Remove(savedRule.id);
+        std::cout << "file drops: executable selection, rules, saving and disabled window passed\n";
+    }
+
     static void TestCopyShortcut(App& app) {
         struct Cleanup {
             App& app;
@@ -621,6 +731,7 @@ struct AppStorageTestAccess {
                                       0, 0, 0, 0, app.hwnd_, nullptr, app.inst_, nullptr);
         CheckTray(app.status_ != nullptr, "could not create tray storage status bar");
         TestOpenRules(app);
+        TestDropFiles(app);
         TestCopyShortcut(app);
 
         // Explorer может ещё не создать значок, но автозапуск не должен показывать окно.

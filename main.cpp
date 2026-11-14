@@ -87,6 +87,35 @@ constexpr ULONGLONG kAutoRulesTimeoutMs = 5000;
 constexpr int  kSortNatural = -1;
 constexpr int  kStatusParts = 5;
 
+void AcceptFileDrops(HWND window) {
+    // Проводник обычно работает без повышения, а главное окно — с повышением.
+    // Разрешаем только сообщения, необходимые для передачи списка файлов.
+    constexpr UINT kCopyGlobalData = 0x0049;
+    ChangeWindowMessageFilterEx(window, WM_DROPFILES, MSGFLT_ALLOW, nullptr);
+    ChangeWindowMessageFilterEx(window, WM_COPYDATA, MSGFLT_ALLOW, nullptr);
+    ChangeWindowMessageFilterEx(window, kCopyGlobalData, MSGFLT_ALLOW, nullptr);
+    DragAcceptFiles(window, TRUE);
+}
+
+std::wstring DroppedExecutable(HDROP drop) {
+    std::wstring result;
+    const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+    for (UINT i = 0; i < count; ++i) {
+        const UINT length = DragQueryFileW(drop, i, nullptr, 0);
+        if (!length) continue;
+        std::wstring path(static_cast<size_t>(length) + 1, L'\0');
+        if (DragQueryFileW(drop, i, path.data(), length + 1) != length) continue;
+        path.resize(length);
+        if (_wcsicmp(PathFindExtensionW(path.c_str()), L".exe") != 0) continue;
+        const DWORD attributes = GetFileAttributesW(path.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        result = std::move(path);
+        break;
+    }
+    DragFinish(drop);
+    return result;
+}
+
 // У PID 0 нет файла, подпись которого можно проверить. Исключение относится
 // только к входящему и исходящему IGMP с PID 0; диапазон проверяется шаблоном.
 bool IsAutomaticIgmp(const AskRequest& request) {
@@ -1229,6 +1258,7 @@ LRESULT App::WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 
     case WM_CREATE: {
         hwnd_ = h;                       // до BuildMenu/Layout: иначе SetMenu(nullptr)
+        AcceptFileDrops(h);
         ServiceInfo::SetNotification(h, kMsgServiceInfoChanged);
         dpi_ = GetDpiForWindow(h);
         if (!dpi_) dpi_ = 96;
@@ -1339,6 +1369,22 @@ LRESULT App::WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         portmaster_start(h, kMsgDriverStartFailed);
         return 0;
     }
+    case WM_DROPFILES: {
+        const HDROP drop = reinterpret_cast<HDROP>(wp);
+        if (!IsWindowEnabled(h)) {
+            DragFinish(drop);
+            return 0;
+        }
+        const std::wstring path = DroppedExecutable(drop);
+        if (path.empty()) return 0;
+        DeferVisibleAsk();
+        if (AppRulesEditor::Run(hwnd_, inst_, rules_, path, PathBaseUpper(path))) {
+            RulesChanged();
+            Tick();
+        }
+        return 0;
+    }
+
     case WM_ERASEBKGND: {
         HDC dc = reinterpret_cast<HDC>(wp);
         RECT rc{}; GetClientRect(h, &rc);
