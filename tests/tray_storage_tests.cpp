@@ -255,6 +255,44 @@ struct StorageTestAccess {
 
 namespace {
 struct AppStorageTestAccess {
+    struct RuleSelectionProbe {
+        static inline RuleSelectionProbe* active = nullptr;
+        int expectedCount = 0;
+        int expectedRow = -1;
+        std::wstring expectedName;
+        bool inspected = false;
+        std::string error;
+
+        static void CALLBACK Tick(HWND, UINT, UINT_PTR timer, DWORD) {
+            HWND dialog = Ui::ModalWindow();
+            if (!dialog || !active) return;
+            KillTimer(nullptr, timer);
+            auto& probe = *active;
+            probe.inspected = true;
+            HWND list = GetDlgItem(dialog, 400);
+            if (!list || ListView_GetItemCount(list) != probe.expectedCount) {
+                probe.error = "wrong rule group opened";
+            } else if (ListView_GetNextItem(list, -1, LVNI_SELECTED) != probe.expectedRow) {
+                probe.error = "wrong rule selected";
+            } else if (probe.expectedRow >= 0) {
+                wchar_t name[128]{};
+                ListView_GetItemText(list, probe.expectedRow, 1, name, static_cast<int>(std::size(name)));
+                RECT item{}, client{}, header{};
+                HWND headerWindow = ListView_GetHeader(list);
+                GetClientRect(list, &client);
+                GetWindowRect(headerWindow, &header);
+                MapWindowPoints(nullptr, list, reinterpret_cast<POINT*>(&header), 2);
+                if (name != probe.expectedName ||
+                    !ListView_GetItemRect(list, probe.expectedRow, &item, LVIR_BOUNDS) ||
+                    item.top < header.bottom || item.bottom > client.bottom ||
+                    (probe.expectedRow > 0 && ListView_GetTopIndex(list) == 0)) {
+                    probe.error = "selected rule is incorrect or not fully visible";
+                }
+            }
+            PostMessageW(dialog, WM_COMMAND, IDCANCEL, 0);
+        }
+    };
+
     static LRESULT CALLBACK HostProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         if (message == WM_NCCREATE) {
             auto* create = reinterpret_cast<CREATESTRUCTW*>(lp);
@@ -392,6 +430,90 @@ struct AppStorageTestAccess {
                   "unknown interface placeholder became a group identity");
     }
 
+    static void TestOpenRules(App& app) {
+        constexpr int count = 64;
+        constexpr int target = 57;
+        const std::wstring appPath = L"C:\\Tests\\child.exe";
+        const std::wstring parentPath = L"C:\\Tests\\parent.exe";
+        const std::wstring interfaceName = L"Test interface";
+        const auto makeRules = [&](RuleScope scope, const std::wstring& path, const std::wstring& prefix) {
+            std::vector<Rule> rules;
+            for (int i = 0; i < count; ++i) {
+                Rule rule;
+                rule.autoName = false;
+                rule.name = prefix + (i == 5 || i == target ? L" duplicate" : std::to_wstring(i));
+                rules.push_back(rule);
+            }
+            app.rules_.Replace(scope, path, prefix, std::move(rules));
+        };
+        makeRules(RuleScope::App, appPath, L"child");
+        makeRules(RuleScope::App, parentPath, L"parent");
+        makeRules(RuleScope::Global, L"", L"global");
+        makeRules(RuleScope::PostApp, L"", L"postapp");
+        makeRules(RuleScope::Interface, interfaceName, L"interface");
+        const auto child = app.rules_.ForApp(appPath);
+        const auto parent = app.rules_.ForApp(parentPath);
+        const auto global = app.rules_.Globals();
+        const auto postapp = app.rules_.PostApps();
+        const auto interfaceRules = app.rules_.InterfaceRules(interfaceName);
+        CheckTray(child.size() == count && parent.size() == count && global.size() == count &&
+                  postapp.size() == count && interfaceRules.size() == count,
+                  "could not prepare rule groups");
+
+        app.snap_ = FullSnapshot({11});
+        ProcItem& process = app.snap_.procs[0];
+        ConnItem& connection = app.snap_.conns[0];
+        process.path = appPath;
+        process.name = L"child.exe";
+        const auto check = [&](uint64_t id, const std::vector<Rule>& expected, int row,
+                               bool selectMatched, bool groupRow, bool ndis = false,
+                               bool useConnectionId = false) {
+            process.group = ndis ? TrafficGroupKey::Ndis(987654) : TrafficGroupKey::Host(GetCurrentProcessId());
+            connection.ruleId = id;
+            std::vector<TreeList::Row> rows(2);
+            rows[0].isGroup = true;
+            rows[0].key = MakeRowKey(process, nullptr);
+            rows[0].ruleId = id;
+            rows[1].groupRow = 0;
+            rows[1].key = MakeRowKey(process, &connection);
+            rows[1].ruleId = useConnectionId ? 0 : id;
+            app.list_.SetRows(std::move(rows));
+            app.list_.Select(groupRow ? 0 : 1);
+
+            RuleSelectionProbe probe;
+            probe.expectedCount = static_cast<int>(expected.size());
+            probe.expectedRow = row;
+            if (row >= 0) probe.expectedName = expected[static_cast<size_t>(row)].name;
+            RuleSelectionProbe::active = &probe;
+            const UINT_PTR timer = SetTimer(nullptr, 0, 20, RuleSelectionProbe::Tick);
+            CheckTray(timer != 0, "could not start rule selection probe");
+            app.OpenAppRules(selectMatched);
+            KillTimer(nullptr, timer);
+            RuleSelectionProbe::active = nullptr;
+            CheckTray(probe.inspected, "rule selection probe was not called");
+            if (!probe.error.empty()) throw std::runtime_error(probe.error);
+        };
+
+        check(child[0].id, child, 0, true, false);
+        check(child[target].id, child, target, true, false);
+        check(child[target].id, child, target, true, false, false, true);
+        check(parent[target].id, parent, target, true, false);
+        check(global[target].id, global, target, true, false);
+        check(postapp[target].id, postapp, target, true, false);
+        check(interfaceRules[target].id, interfaceRules, target, true, false, true);
+        check(0, child, 0, true, false);
+        check(UINT64_MAX, child, 0, true, false);
+        check(global[target].id, child, 0, false, false);
+        check(global[target].id, child, 0, true, true);
+        process.path = L"C:\\Tests\\no-rules.exe";
+        check(0, {}, -1, true, false);
+
+        app.list_.SetRows({});
+        app.snap_ = Snapshot{};
+        for (const Rule& rule : app.rules_.All()) app.rules_.Remove(rule.id);
+        std::cout << "rule selection: matching groups, scrolling and fallbacks passed\n";
+    }
+
     static void TestCopyShortcut(App& app) {
         struct Cleanup {
             App& app;
@@ -498,6 +620,7 @@ struct AppStorageTestAccess {
         app.status_ = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, WS_CHILD | WS_VISIBLE,
                                       0, 0, 0, 0, app.hwnd_, nullptr, app.inst_, nullptr);
         CheckTray(app.status_ != nullptr, "could not create tray storage status bar");
+        TestOpenRules(app);
         TestCopyShortcut(app);
 
         // Explorer может ещё не создать значок, но автозапуск не должен показывать окно.

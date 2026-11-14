@@ -589,7 +589,7 @@ private:
     void CreateRuleForSelection(bool global);
     void EditRuleForSelection();
     void DeleteRuleForSelection();
-    void OpenAppRules();
+    void OpenAppRules(bool selectMatchedRule = false);
     void OpenGlobalRules();
     void OpenAllRules();
     void OpenSettings();
@@ -1273,7 +1273,7 @@ LRESULT App::WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             }
             SyncMenu();
         };
-		// Двойной щелчок по соединению открывает правила его приложения.
+        // Двойной щелчок по соединению открывает группу сработавшего правила.
         // Строка выбирается принудительно: OpenAppRules читает выделение
         // списка, а не сохранённый ключ.
         list_.onActivate = [this](int row) {
@@ -1283,7 +1283,7 @@ LRESULT App::WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
                 selKey_ = rows[static_cast<size_t>(row)].key;
                 selValid_ = true;
             }
-            OpenAppRules();
+            OpenAppRules(true);
         };
         ask_.onDecision = [this](const AskRequest& r, const AskDecision& decision) {
             ApplyDecision(r, decision);
@@ -2729,20 +2729,27 @@ void App::DeleteRuleForSelection() {
     Tick();
 }
 
-void App::OpenAppRules() {
+void App::OpenAppRules(bool selectMatchedRule) {
     const Selection sel = GetSelection();
     if (!sel.valid) return;
     DeferVisibleAsk();
-    const auto path = sel.group.isNdis()
-        ? net::SharedNetworkInterfaces().GetInterfaceName(sel.group.interfaceIndex())
-        : std::optional<std::wstring>(sel.appPath);
-    if (!path || (sel.group.isNdis() && path->empty())) {
+    Rule matched;
+    const bool hasMatchedRule = selectMatchedRule && !sel.isGroup && ResolveRule(sel, matched);
+    const bool global = hasMatchedRule && matched.isGlobal();
+    const bool postapp = hasMatchedRule && matched.isPostApp();
+    const bool interfaceGroup = hasMatchedRule ? matched.isInterface() : sel.group.isNdis();
+    const auto path = hasMatchedRule ? std::optional<std::wstring>(matched.appPath)
+        : interfaceGroup ? net::SharedNetworkInterfaces().GetInterfaceName(sel.group.interfaceIndex())
+                         : std::optional<std::wstring>(sel.appPath);
+    if (!path || (interfaceGroup && path->empty())) {
         Ui::ShowMessage(hwnd_, LoadStringResFmt(IDS_INTERFACE_UNKNOWN, sel.group.interfaceIndex()).c_str(),
                         LoadStringRes(IDS_RULES_TITLE).c_str(), MB_ICONINFORMATION);
         return;
     }
-    if (AppRulesEditor::Run(hwnd_, inst_, rules_, *path, sel.appName,
-                            false, false, sel.group.isNdis(), sel.group.pid())) {
+    if (AppRulesEditor::Run(hwnd_, inst_, rules_, *path,
+                            hasMatchedRule ? matched.appName : sel.appName,
+                            global, postapp, interfaceGroup, sel.group.pid(),
+                            hasMatchedRule ? matched.id : 0)) {
         RulesChanged();
         Tick();
     }

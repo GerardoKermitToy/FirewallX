@@ -11,6 +11,7 @@
 #include "UiKit.h"
 #include <commctrl.h>
 #include <windowsx.h>
+#include <algorithm>
 #include <memory>
 
 namespace {
@@ -22,6 +23,7 @@ public:
     bool global = false;
     bool postapp = false;
     bool interfaceGroup = false;
+    uint64_t selectedRuleId = 0;
     std::vector<Rule> rules;
     bool inheritanceAvailable = false;
     RuleInheritance inheritance = RuleInheritance::Default;
@@ -180,7 +182,12 @@ protected:
         FitFooter(y + explainH + m.gap());
 
         Fill();
-        if (!rules.empty()) SelectRow(0);
+        if (!rules.empty()) {
+            const auto selected = std::find_if(rules.begin(), rules.end(), [this](const Rule& rule) {
+                return selectedRuleId != 0 && rule.id == selectedRuleId;
+            });
+            SelectRow(selected == rules.end() ? 0 : static_cast<int>(selected - rules.begin()));
+        }
         OkCancel();
     }
 
@@ -524,7 +531,8 @@ void AppRulesEditor::SetInterfaceBindingTestHandler(void (*handler)(const std::w
 
 bool AppRulesEditor::Run(HWND owner, HINSTANCE inst, RuleStore& store,
                          const std::wstring& appPath, const std::wstring& appName,
-                         bool global, bool postapp, bool interfaceGroup, DWORD pid) {
+                         bool global, bool postapp, bool interfaceGroup, DWORD pid,
+                         uint64_t selectedRuleId) {
     if (!global && !postapp && !interfaceGroup && appPath.empty()) {
         Ui::ShowMessage(owner, LoadStringRes(IDS_APPED_NO_PATH).c_str(),
                     LoadStringRes(IDS_RULE_EDITOR_TITLE).c_str(), MB_ICONWARNING);
@@ -535,6 +543,7 @@ bool AppRulesEditor::Run(HWND owner, HINSTANCE inst, RuleStore& store,
     d.global  = global;
     d.postapp = postapp;
     d.interfaceGroup = interfaceGroup;
+    d.selectedRuleId = selectedRuleId;
     d.appPath = (global || postapp) ? std::wstring() : appPath;
     d.inheritanceAvailable = !global && !postapp && !interfaceGroup &&
                              RuleStore::CanSetInheritance(appPath, pid);

@@ -9,7 +9,7 @@ public:
     static bool Run(HWND owner, HINSTANCE inst, RuleStore& store,
                     const std::wstring& appPath, const std::wstring& appName,
                     bool global = false, bool postapp = false, bool interfaceGroup = false,
-                    DWORD pid = MAXDWORD);
+                    DWORD pid = MAXDWORD, uint64_t selectedRuleId = 0);
 #ifdef FIREWALLX_TEST_VERDICTS
     static void SetInterfaceBindingTestHandler(void (*handler)(const std::wstring&));
 #endif
