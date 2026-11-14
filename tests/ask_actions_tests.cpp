@@ -970,6 +970,25 @@ void TestNewResources() {
         Check(LoadStringResFmt(IDS_STATUS_PROCS_FMT, 12u, 34u) == translation.processes,
               "localized process count was formatted incorrectly");
     }
+    SetUiLang(UiLang::Ukrainian);
+    Check(std::to_wstring(5) + LoadStringRes(IDS_MON_TIME_AGO) == L"5 с тому",
+          "Ukrainian inactivity time lost its seconds suffix");
+    Check(LoadStringRes(IDS_RDS_ONLY_RUNNING) == L"Тільки запущені",
+          "Ukrainian service filter does not describe running services");
+    SetUiLang(UiLang::Lithuanian);
+    Check(std::to_wstring(5) + LoadStringRes(IDS_MON_TIME_AGO) == L"5 s anksčiau",
+          "Lithuanian inactivity time is not a valid suffix");
+    SetUiLang(UiLang::Arabic);
+    Check(LoadStringRes(IDS_MACRO_MORE_PREFIX) + L"5" == L"... المتبقي: 5",
+          "Arabic remaining address count is incorrect");
+    SetUiLang(UiLang::Persian);
+    Check(LoadStringRes(IDS_MACRO_MORE_PREFIX) + L"5" == L"... باقی‌مانده: 5",
+          "Persian remaining address count is incorrect");
+    SetUiLang(UiLang::Polish);
+    Check(L"1" + LoadStringRes(IDS_ALLRULES_ENABLED_SUFFIX) == L"1 wł.)",
+          "Polish enabled rule count is incorrect");
+    Check(LoadStringRes(IDS_MACRO_MORE_PREFIX) + L"5" == L"... i jeszcze 5",
+          "Polish remaining address count is incorrect");
     SetUiLang(previous);
 }
 
@@ -1015,7 +1034,7 @@ void TestAutomaticRuleNames() {
         {UiLang::French, L" de ", L" vers ", L" entre %s et %s"},
         {UiLang::Spanish, L" de ", L" a ", L" entre %s y %s"},
         {UiLang::Arabic, L" من ", L" إلى ", L" بين %s و%s"},
-        {UiLang::Hindi, L" से ", L" को ", L" %s और %s के बीच"},
+        {UiLang::Hindi, L" स्रोत: ", L" गंतव्य: ", L" %s और %s के बीच"},
         {UiLang::Latvian, L" no ", L" uz ", L" starp %s un %s"},
         {UiLang::Lithuanian, L" iš ", L" į ", L" tarp %s ir %s"},
         {UiLang::Estonian, L" lähtekohast ", L" sihtkohta ", L" %s ja %s vahel"},
@@ -1123,6 +1142,92 @@ void TestAutomaticRuleNames() {
                   "automatic name lost an endpoint or included an unchecked/inapplicable condition");
         }
     }
+    struct ScopeLabel {
+        UiLang language;
+        const wchar_t* prefix;
+    };
+    const ScopeLabel scopeLabels[] = {
+        {UiLang::Hindi, L" दायरा: "},
+        {UiLang::Korean, L" 범위: "},
+        {UiLang::Turkish, L" kapsam: "},
+        {UiLang::Estonian, L" ulatus: "},
+    };
+    for (const auto& translation : scopeLabels) {
+        SetUiLang(translation.language);
+        for (RuleScope scope : {RuleScope::App, RuleScope::PostApp, RuleScope::Interface}) {
+            Rule named = example;
+            named.scope = scope;
+            named.appName = scope == RuleScope::App ? L"TASKHOSTW.EXE" : L"Test group";
+            const std::wstring expectedSuffix = std::wstring(translation.prefix) + named.appName;
+            Check(named.BuildAutoName().ends_with(expectedSuffix),
+                  "localized rule name does not correctly label its application or group");
+        }
+    }
+    struct InterfaceLabel {
+        UiLang language;
+        const wchar_t* prefix;
+    };
+    const InterfaceLabel interfaceLabels[] = {
+        {UiLang::English, L"and the interface is "},
+        {UiLang::German, L"und die Schnittstelle ist "},
+        {UiLang::French, L"et l’interface est "},
+        {UiLang::Spanish, L"y la interfaz es "},
+        {UiLang::Portuguese, L"e a interface é "},
+        {UiLang::Italian, L"e l’interfaccia è "},
+        {UiLang::PortugueseBrazil, L"e a interface é "},
+        {UiLang::Swedish, L"och gränssnittet är "},
+        {UiLang::Romanian, L"și interfața este "},
+    };
+    Rule withInterface = example;
+    withInterface.conds |= CondInterface;
+    withInterface.interfaceName = L"Ethernet";
+    for (const auto& translation : interfaceLabels) {
+        SetUiLang(translation.language);
+        const std::wstring expectedMarkup = std::wstring(translation.prefix) +
+            L"<a id=\"interface\">Ethernet</a>";
+        Check(RuleExplainMarkup(withInterface).find(expectedMarkup) != std::wstring::npos,
+              "localized interface condition is incomplete or does not include its name");
+    }
+    Rule serviceRule;
+    serviceRule.conds = CondProto | CondDirection | CondService;
+    serviceRule.proto = Proto::Tcp;
+    serviceRule.dir = Dir::Out;
+    serviceRule.action = RuleAction::Allow;
+    struct ServiceNames {
+        UiLang language;
+        const wchar_t* any;
+        const wchar_t* one;
+        const wchar_t* many;
+    };
+    const ServiceNames serviceNames[] = {
+        {UiLang::Dutch, L"Toestaan Uitgaand TCP van elke service",
+         L"Toestaan Uitgaand TCP van de service Dnscache",
+         L"Toestaan Uitgaand TCP van de services Dnscache, W32Time"},
+        {UiLang::Polish, L"Dopuść wychodzący TCP dowolnej usługi",
+         L"Dopuść wychodzący TCP usługi Dnscache",
+         L"Dopuść wychodzący TCP usług Dnscache, W32Time"},
+    };
+    for (const auto& translation : serviceNames) {
+        SetUiLang(translation.language);
+        serviceRule.services.clear();
+        Check(serviceRule.BuildAutoName() == translation.any,
+              "localized rule name does not describe any service correctly");
+        serviceRule.services = {{L"Dnscache", L""}};
+        Check(serviceRule.BuildAutoName() == translation.one,
+              "localized rule name does not describe one service correctly");
+        serviceRule.services.push_back({L"W32Time", L""});
+        Check(serviceRule.BuildAutoName() == translation.many,
+              "localized rule name does not describe multiple services correctly");
+    }
+    SetUiLang(UiLang::Polish);
+    serviceRule.dir = Dir::In;
+    serviceRule.conds &= ~CondProto;
+    Check(serviceRule.BuildAutoName() == L"Dopuść przychodzący protokół (dowolny) usług Dnscache, W32Time",
+          "Polish rule name disagrees with its direction or unspecified protocol");
+    serviceRule.services.clear();
+    Check(RuleExplainMarkup(serviceRule).find(
+              L"i identyfikator usługi: <a id=\"service\">«dowolny»</a>") != std::wstring::npos,
+          "Polish service explanation disagrees with an unspecified service");
     SetUiLang(UiLang::Russian);
     Rule rule = example;
     rule.conds = CondProto | CondDirection | CondRemotePort | CondLocalPort;
