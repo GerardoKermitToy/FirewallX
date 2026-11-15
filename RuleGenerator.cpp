@@ -174,12 +174,33 @@ void DiscoverServices(std::vector<ServiceCandidate>& out, const std::atomic_bool
 } // анонимное пространство имён
 
 std::wstring ReadServiceDll(HKEY root, const std::wstring& serviceKey) {
+    const auto read = [&](const std::wstring& key, LONG& status) {
+        std::wstring dll = RegistryString(root, key + L"\\Parameters", L"ServiceDll", 0, &status);
+        // Не подменяем недоступное или повреждённое значение другим файлом.
+        if (status == ERROR_FILE_NOT_FOUND || status == ERROR_PATH_NOT_FOUND)
+            dll = RegistryString(root, key, L"ServiceDll", 0, &status);
+        return dll;
+    };
     LONG status = ERROR_SUCCESS;
-    std::wstring dll = RegistryString(root, serviceKey + L"\\Parameters", L"ServiceDll", 0, &status);
-    // Не подменяем недоступное или повреждённое значение другим файлом.
-    if (status == ERROR_FILE_NOT_FOUND || status == ERROR_PATH_NOT_FOUND)
-        dll = RegistryString(root, serviceKey, L"ServiceDll");
-    return dll;
+    std::wstring dll = read(serviceKey, status);
+    if (status != ERROR_FILE_NOT_FOUND && status != ERROR_PATH_NOT_FOUND) return dll;
+
+    // Пользовательский экземпляр может наследовать DLL из базового ключа службы.
+    // Одного суффикса имени недостаточно: проверяем тип экземпляра и шаблона.
+    constexpr DWORD userFlags = SERVICE_USER_SERVICE | SERVICE_USERSERVICE_INSTANCE;
+    DWORD type = 0, bytes = sizeof(type);
+    if (RegGetValueW(root, serviceKey.c_str(), L"Type", RRF_RT_REG_DWORD, nullptr,
+                     &type, &bytes) != ERROR_SUCCESS || (type & userFlags) != userFlags) return {};
+    const size_t suffix = serviceKey.find_last_of(L'_');
+    const size_t slash = serviceKey.find_last_of(L"\\/");
+    if (suffix == std::wstring::npos || suffix + 1 == serviceKey.size() ||
+        suffix <= (slash == std::wstring::npos ? 0 : slash + 1)) return {};
+    const std::wstring templateKey = serviceKey.substr(0, suffix);
+    bytes = sizeof(type);
+    if (RegGetValueW(root, templateKey.c_str(), L"Type", RRF_RT_REG_DWORD, nullptr,
+                     &type, &bytes) != ERROR_SUCCESS ||
+        (type & userFlags) != SERVICE_USER_SERVICE) return {};
+    return read(templateKey, status);
 }
 
 Result Scan(const std::atomic_bool& cancel, const Progress& progress) {
@@ -307,23 +328,31 @@ Result Scan(const std::atomic_bool& cancel, const Progress& progress) {
         L"microsoft.windowscommunicationsapps_*\\HxCalendarAppImm.exe",
         L"Microsoft.MicrosoftOfficeHub_*\\M365Copilot.exe", L"Microsoft.Copilot_*\\CopilotApp.exe",
         L"Microsoft.MicrosoftSolitaireCollection_*\\Solitaire.exe", L"Microsoft.XboxApp_*\\XboxPcApp.exe",
+        L"Microsoft.GamingApp_*\\XboxPcApp.exe", L"Microsoft.GamingApp_*\\XboxPcAppFT.exe",
+        L"TelegramMessengerLLP.TelegramDesktop_*\\Telegram.exe",
+        L"Microsoft.WindowsAlarms_*\\Time.exe",
+        L"Microsoft.PowerAutomateDesktop_*\\dotnet\\PAD.Console.Host.exe",
         L"Microsoft.DesktopAppInstaller_*\\winget.exe",
         L"Microsoft.YourPhone_*\\PhoneExperienceHost.exe", L"MicrosoftWindows.Client.WebExperience_*\\WebExperienceHostApp.exe",
         L"Microsoft.MicrosoftStickyNotes_*\\Microsoft.Notes.exe", L"Microsoft.Todos_*\\Todo.exe",
         L"Microsoft.BingNews_*\\Microsoft.Msn.News.exe", L"Microsoft.BingWeather_*\\Microsoft.Msn.Weather.exe",
-        L"Clipchamp.Clipchamp_*\\Clipchamp.exe", L"Microsoft.XboxGamingOverlay_*\\GameBar.exe"
+        L"Clipchamp.Clipchamp_*\\Clipchamp.exe", L"Microsoft.XboxGamingOverlay_*\\GameBar.exe",
+        L"A025C540.Yandex.Music_*\\Y.Music.exe"
     };
     if (onWindowsDrive(programFiles)) for (const wchar_t* pattern : packages)
         ExpandPattern(programFiles + L"\\WindowsApps\\" + pattern, cancel, safeDirectory, add);
     static constexpr const wchar_t* systemApps[] = {
         L"Microsoft.Windows.StartMenuExperienceHost_*\\StartMenuExperienceHost.exe",
         L"Microsoft.Windows.Search_*\\SearchHost.exe", L"MicrosoftWindows.Client.CBS_*\\SearchHost.exe",
+        L"MicrosoftWindows.Client.CBS_*\\SoftLandingTask\\SoftLandingTask.exe",
         L"Microsoft.Windows.AppResolverUX_*\\AppHostRegistrationVerifier.exe"
     };
     if (!windows.empty()) for (const wchar_t* pattern : systemApps)
         ExpandPattern(windows + L"\\SystemApps\\" + pattern, cancel, safeDirectory, add);
-    if (!windows.empty()) ExpandPattern(windows + L"\\ImmersiveControlPanel\\SystemSettings.exe",
-                                        cancel, safeDirectory, add);
+    if (!windows.empty()) {
+        ExpandPattern(windows + L"\\ImmersiveControlPanel\\SystemSettings.exe", cancel, safeDirectory, add);
+        ExpandPattern(windows + L"\\UUS\\amd64\\MoUsoCoreWorker.exe", cancel, safeDirectory, add);
+    }
 
     std::vector<ServiceCandidate> services;
     if (!cancel.load(std::memory_order_relaxed)) DiscoverServices(services, cancel);

@@ -178,7 +178,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_DNS_SERVER_UDP; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_STUN_UDP_3478; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -3416,7 +3416,99 @@ void TestRemoteAccessPresets() {
     SetUiLang(previous);
 }
 
+void TestWebview2StunPreset() {
+    const UiLang previous = CurrentUiLang();
+    SetUiLang(UiLang::English);
+    const std::wstring path = L"C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\157.0.4341.46\\msedgewebview2.exe";
+    AskRequest request = Request(path, Proto::Udp, 3478, L"91.235.132.129");
+    request.key.local = Ip(L"192.168.219.24");
+    request.key.lport = 65082;
+    request.conditionFlags = 1;
+    request.interfaceName = std::make_shared<const std::wstring>(L"Ethernet");
+    SetServices(request.pid, {});
+    const auto offered = [](const AskRequest& flow) {
+        const auto choices = RulePresets::Suggest(flow);
+        return std::any_of(choices.begin(), choices.end(), [](const auto& choice) {
+            return choice.titleId == IDS_PRESET_WEBVIEW2_STUN;
+        });
+    };
+    const auto choices = RulePresets::Suggest(request);
+    const auto& preset = ChoiceOf(choices, IDS_PRESET_WEBVIEW2_STUN);
+    Check(preset.title == L"msedgewebview2.exe: STUN (UDP 3478)" && preset.rules.size() == 1,
+          "WebView2 STUN preset lost its title or single rule");
+    const Rule& rule = preset.rules.front();
+    Check(rule.scope == RuleScope::App && rule.appPath == path && rule.action == RuleAction::Allow &&
+          rule.proto == Proto::Udp && rule.dir == Dir::Out &&
+          rule.conds == (CondProto | CondDirection | CondRemotePort) &&
+          rule.remotePorts.size() == 1 && rule.remotePorts[0].from == 3478 &&
+          rule.remotePorts[0].to == 3478 && rule.localPorts.empty() &&
+          rule.remoteAddrs.empty() && rule.localAddrs.empty() && rule.services.empty() &&
+          rule.interfaceName.empty() && rule.conditionFlags == 0 &&
+          RuleStore::MatchesRule(rule, request.ToQuery()),
+          "WebView2 STUN rule widened its port or pinned captured conditions");
+    for (const auto& [local, remote] : {
+            std::pair{L"192.0.2.10", L"198.51.100.20"},
+            std::pair{L"2001:db8::10", L"2001:db8::20"}}) {
+        AskRequest flow = request;
+        flow.key.local = Ip(local);
+        flow.key.remote = Ip(remote);
+        flow.key.lport = 40001;
+        flow.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
+        flow.conditionFlags.reset();
+        flow.process.reset();
+        Check(offered(flow) && RuleStore::MatchesRule(rule, flow.ToQuery()),
+              "WebView2 STUN depended on endpoints, interface, flags or process handle");
+    }
+    for (uint16_t port : {uint16_t{3477}, uint16_t{3479}, uint16_t{3481}, uint16_t{5353}}) {
+        AskRequest flow = request;
+        flow.key.rport = port;
+        Check(!offered(flow) && !RuleStore::MatchesRule(rule, flow.ToQuery()),
+              "WebView2 STUN accepted another remote port");
+    }
+    AskRequest changed = request;
+    changed.key.proto = Proto::Tcp;
+    Check(!offered(changed) && !RuleStore::MatchesRule(rule, changed.ToQuery()),
+          "WebView2 STUN accepted TCP");
+    changed = request;
+    changed.appPath = L"C:\\Apps\\not-a-preset.exe";
+    Check(!offered(changed) && !RuleStore::MatchesRule(rule, changed.ToQuery()),
+          "WebView2 STUN matched another executable");
+    changed.appPath = L"C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\158.0.0.0\\msedgewebview2.exe";
+    Check(offered(changed) && !RuleStore::MatchesRule(rule, changed.ToQuery()),
+          "WebView2 STUN lost version independence or exact application scope");
+    changed = request;
+    changed.ownerAmbiguous = true;
+    Check(!offered(changed), "ambiguous owner received a WebView2 STUN preset");
+    RuleStore store;
+    Check(RulePresets::Apply(store, request, preset.rules) == 1,
+          "cannot apply WebView2 STUN preset");
+    changed = request;
+    changed.key.proto = Proto::Tcp;
+    changed.key.rport = 443;
+    const auto webChoices = RulePresets::Suggest(changed);
+    const auto& web = ChoiceOf(webChoices, IDS_PRESET_WEBVIEW2);
+    Check(web.rules.size() == 3 && RulePresets::Apply(store, changed, web.rules) == 3 && store.Count() == 4,
+          "WebView2 STUN changed its existing web preset");
+    const uint64_t version = store.version();
+    size_t languageCount = 0;
+    const UiLangInfo* languages = UiLangs(languageCount);
+    for (size_t i = 0; i < languageCount; ++i) {
+        SetUiLang(languages[i].lang);
+        const auto localized = RulePresets::Suggest(request);
+        const auto& translated = ChoiceOf(localized, IDS_PRESET_WEBVIEW2_STUN);
+        const std::wstring title = LoadStringRes(IDS_PRESET_WEBVIEW2_STUN);
+        const std::wstring name = LoadStringRes(IDS_PRESET_RULE_STUN_UDP_3478);
+        Check(!title.empty() && !name.empty() && translated.title == title && translated.rules.size() == 1 &&
+              translated.rules[0].name == LoadStringResFmt(IDS_PRESET_RULE_NAME_FMT,
+                  title.c_str(), name.c_str()) && RulePresets::Apply(store, request, translated.rules) == 0 &&
+              store.Count() == 4 && store.version() == version,
+              "localized WebView2 STUN preset was lost or duplicated");
+    }
+    SetUiLang(previous);
+}
+
 void TestCapturedConnectionPresets() {
+    TestWebview2StunPreset();
     struct Profile {
         std::wstring path;
         UINT titleId;
@@ -3427,6 +3519,15 @@ void TestCapturedConnectionPresets() {
     };
     const std::wstring svchost = SystemDirFile(L"svchost.exe");
     const Profile profiles[] = {
+        {L"C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\SoftLandingTask\\SoftLandingTask.exe",
+            IDS_PRESET_SOFT_LANDING_TASK, nullptr, 1, true, RuleAction::Allow},
+        {svchost, IDS_PRESET_WISVC, L"wisvc", 1, true, RuleAction::Allow},
+        {L"C:\\Program Files\\WindowsApps\\A025C540.Yandex.Music_4.54.8517.0_x64__vfvw9svesycw6\\Y.Music.exe",
+            IDS_PRESET_YANDEX_MUSIC, nullptr, 1, true, RuleAction::Allow},
+        {LR"(C:\Program Files\WindowsApps\Microsoft.WindowsAlarms_11.2607.6.0_x64__8wekyb3d8bbwe\Time.exe)",
+            IDS_PRESET_WINDOWS_CLOCK, nullptr, 1, true, RuleAction::Allow},
+        {LR"(C:\Program Files\WindowsApps\Microsoft.PowerAutomateDesktop_11.2611.191.0_x64__8wekyb3d8bbwe\dotnet\PAD.Console.Host.exe)",
+            IDS_PRESET_POWER_AUTOMATE, nullptr, 1, true, RuleAction::Allow},
         {L"C:\\Program Files (x86)\\Common Files\\Steam\\steamservice.exe",
             IDS_PRESET_STEAM_SERVICE, nullptr, 1, true, RuleAction::Allow},
         {L"C:\\Program Files\\WSL\\wslservice.exe", IDS_PRESET_WSL_SERVICE, L"WSLService", 1, true, RuleAction::Allow},
@@ -3466,8 +3567,8 @@ void TestCapturedConnectionPresets() {
             IDS_PRESET_WINDOWS_BACKUP, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\Microsoft.GamingApp_2611.1001.10.0_x64__8wekyb3d8bbwe\\XboxPcApp.exe",
             IDS_PRESET_XBOX_PC_APP, nullptr, 1, true, RuleAction::Allow},
-        {L"C:\\Program Files\\WindowsApps\\Microsoft.GamingApp_2611.1001.10.0_x64__8wekyb3d8bbwe\\XboxPcAppFT.exe",
-            IDS_PRESET_XBOX_PC_APP_FT, nullptr, 1, false, RuleAction::Allow},
+        {L"C:\\Program Files\\WindowsApps\\Microsoft.GamingApp_2612.1001.25.0_x64__8wekyb3d8bbwe\\XboxPcAppFT.exe",
+            IDS_PRESET_XBOX_PC_APP_FT, nullptr, 1, true, RuleAction::Allow},
         {svchost, IDS_PRESET_WAAS_MEDIC, L"WaaSMedicSvc", 1, false, RuleAction::Allow},
         {SystemDirFile(L"WUDFHost.exe"), IDS_PRESET_WUDF_HOST, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE", IDS_PRESET_EXCEL, nullptr, 1, false, RuleAction::Allow},
@@ -3606,6 +3707,12 @@ void TestCapturedConnectionPresets() {
         else if (!profile.service || profile.titleId == IDS_PRESET_WSL_SERVICE ||
                  profile.titleId == IDS_PRESET_GAMING_SERVICES)
             Check(offered(changed), "application preset depended on the installation directory");
+        if (profile.titleId == IDS_PRESET_YANDEX_MUSIC) {
+            changed = request;
+            changed.appPath = L"C:\\Program Files\\WindowsApps\\A025C540.Yandex.Music_5.0.0.0_x64__vfvw9svesycw6\\Y.Music.exe";
+            Check(offered(changed) && !matches(changed),
+                  "Yandex Music version change lost suggestion or exact application scope");
+        }
         if (profile.titleId == IDS_PRESET_ONEDRIVE_SYNC || profile.titleId == IDS_PRESET_ONEDRIVE_UPDATER) {
             changed = request;
             changed.appPath = std::wstring(L"C:\\Program Files\\Microsoft OneDrive\\26.198.1011.0006\\") +
@@ -3655,7 +3762,7 @@ void TestCapturedConnectionPresets() {
             profile.titleId == IDS_PRESET_SYSTEM_SETTINGS || profile.titleId == IDS_PRESET_UC_CONFIG_TASK ||
             profile.titleId == IDS_PRESET_GAMING_SERVICES || profile.titleId == IDS_PRESET_M365_COPILOT ||
             profile.titleId == IDS_PRESET_PHONE_EXPERIENCE || profile.titleId == IDS_PRESET_SMARTSCREEN ||
-            profile.titleId == IDS_PRESET_WINDOWS_BACKUP || profile.titleId == IDS_PRESET_XBOX_PC_APP_FT ||
+            profile.titleId == IDS_PRESET_WINDOWS_BACKUP ||
             profile.titleId == IDS_PRESET_EXCEL || profile.titleId == IDS_PRESET_MSACCESS ||
             profile.titleId == IDS_PRESET_WHITEBOARD || profile.titleId == IDS_PRESET_HX_CALENDAR ||
             profile.titleId == IDS_PRESET_XPD_AGENT) {
@@ -3697,7 +3804,10 @@ void TestCapturedConnectionPresets() {
             }
         }
         if (profile.titleId == IDS_PRESET_WUDF_HOST || profile.titleId == IDS_PRESET_TASK_HOST ||
-            profile.titleId == IDS_PRESET_STEAM_SERVICE || profile.titleId == IDS_PRESET_SEARCH_HOST) {
+            profile.titleId == IDS_PRESET_STEAM_SERVICE || profile.titleId == IDS_PRESET_SEARCH_HOST ||
+            profile.titleId == IDS_PRESET_SOFT_LANDING_TASK || profile.titleId == IDS_PRESET_YANDEX_MUSIC ||
+            profile.titleId == IDS_PRESET_WINDOWS_CLOCK || profile.titleId == IDS_PRESET_POWER_AUTOMATE ||
+            profile.titleId == IDS_PRESET_XBOX_PC_APP_FT) {
             SetServices(request.pid, {L"ServiceA", L"ServiceB"});
             changed = request;
             changed.process.reset();
@@ -3732,7 +3842,7 @@ void TestCapturedConnectionPresets() {
             profile.titleId == IDS_PRESET_EXPLORER || profile.titleId == IDS_PRESET_APPHOST_VERIFIER ||
             profile.titleId == IDS_PRESET_WSL_SERVICE || profile.titleId == IDS_PRESET_BACKGROUND_TASK_HOST ||
             profile.titleId == IDS_PRESET_HX_OUTLOOK || profile.titleId == IDS_PRESET_MICROSOFT_ACCOUNT ||
-            profile.titleId == IDS_PRESET_SEARCH_HOST) {
+            profile.titleId == IDS_PRESET_SEARCH_HOST || profile.titleId == IDS_PRESET_XBOX_PC_APP_FT) {
             RuleStore existingStore;
             Rule oldHttps = preset.rules.front();
             oldHttps.remotePorts.resize(1);
@@ -3780,7 +3890,10 @@ void TestCapturedConnectionPresets() {
             const std::wstring title = LoadStringRes(profile.titleId);
             if (profile.titleId == IDS_PRESET_WSL_SERVICE || profile.titleId == IDS_PRESET_BACKGROUND_TASK_HOST ||
                 profile.titleId == IDS_PRESET_HX_OUTLOOK || profile.titleId == IDS_PRESET_MICROSOFT_ACCOUNT ||
-                profile.titleId == IDS_PRESET_WWA_HOST || profile.titleId == IDS_PRESET_SEARCH_HOST)
+                profile.titleId == IDS_PRESET_WWA_HOST || profile.titleId == IDS_PRESET_SEARCH_HOST ||
+                profile.titleId == IDS_PRESET_SOFT_LANDING_TASK || profile.titleId == IDS_PRESET_WISVC ||
+                profile.titleId == IDS_PRESET_YANDEX_MUSIC || profile.titleId == IDS_PRESET_WINDOWS_CLOCK ||
+                profile.titleId == IDS_PRESET_POWER_AUTOMATE || profile.titleId == IDS_PRESET_XBOX_PC_APP_FT)
                 Check(title.find(L"HTTPS / HTTP") != std::wstring::npos,
                       "extended captured preset title omitted HTTP or HTTPS");
             if (profile.titleId == IDS_PRESET_WWA_HOST)
@@ -3907,7 +4020,9 @@ void TestCapturedConnectionPresets() {
           LoadStringRes(IDS_PRESET_WEB_EXPERIENCE) == L"WebExperienceHostApp.exe: HTTPS / HTTP" &&
           LoadStringRes(IDS_PRESET_WINDOWS_BACKUP) == L"WindowsBackupClient.exe: HTTPS" &&
           LoadStringRes(IDS_PRESET_XBOX_PC_APP) == L"XboxPcApp.exe: HTTPS / HTTP" &&
-          LoadStringRes(IDS_PRESET_XBOX_PC_APP_FT) == L"XboxPcAppFT.exe: HTTPS" &&
+          LoadStringRes(IDS_PRESET_XBOX_PC_APP_FT) == L"XboxPcAppFT.exe: HTTPS / HTTP" &&
+          LoadStringRes(IDS_PRESET_WINDOWS_CLOCK) == L"Time.exe: HTTPS / HTTP" &&
+          LoadStringRes(IDS_PRESET_POWER_AUTOMATE) == L"PAD.Console.Host.exe: HTTPS / HTTP" &&
           LoadStringRes(IDS_PRESET_START_MENU) == L"StartMenuExperienceHost: HTTPS / HTTP" &&
           LoadStringRes(IDS_PRESET_SEARCH_HOST) == L"Windows Search: HTTPS / HTTP" &&
           LoadStringRes(IDS_PRESET_SHARED_ACCESS_DHCP) == L"SharedAccess: DHCPv4" &&

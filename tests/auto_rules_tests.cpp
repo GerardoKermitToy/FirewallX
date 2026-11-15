@@ -104,6 +104,9 @@ struct TempDirectory {
                                      L"BackgroundDownload.exe", L"Blend.exe", L"PerfWatson2.exe",
                                      L"iTunes.exe", L"Wireshark.exe", L"SIHClient.exe", L"taskhostw.exe",
                                      L"git-remote-https.exe", L"steamservice.exe", L"SearchHost.exe",
+                                     L"SoftLandingTask.exe", L"Y.Music.exe", L"MoUsoCoreWorker.exe",
+                                     L"XboxPcApp.exe", L"XboxPcAppFT.exe", L"Telegram.exe",
+                                     L"Time.exe", L"PAD.Console.Host.exe", L"msedgewebview2.exe",
                                      L"CopilotApp.exe", L"explorer.exe", L"MpCmdRun.exe",
                                      L"Discord.exe", L"obs64.exe", L"OneDrive.exe",
                                      L"OneDrive.Sync.Service.exe", L"OneDriveUpdaterService.exe",
@@ -979,15 +982,40 @@ void GeneratedRules(const std::wstring& signedPath, const std::wstring& unsigned
                          rule.localPorts[0].to == 53 && rule.remotePorts.empty() &&
                          rule.localAddrs.empty() && rule.remoteAddrs.empty();
               }) == 1, "generation omitted SharedAccess DNS or changed the existing DHCP rules");
+    ServiceEntry insider;
+    insider.name = L"wisvc";
+    serviceRules = RulePresets::Generate(svchost, {insider});
+    CheckAuto(serviceRules.size() == 1 && serviceRules[0].proto == Proto::Tcp &&
+              serviceRules[0].conds == (CondProto | CondDirection | CondService | CondRemotePort) &&
+              serviceRules[0].services.size() == 1 && serviceRules[0].services[0].name == insider.name &&
+              serviceRules[0].remotePorts.size() == 2 && serviceRules[0].remotePorts[0].from == 443 &&
+              serviceRules[0].remotePorts[1].from == 80,
+              "generation omitted the service-scoped wisvc HTTP/HTTPS rule");
     ServiceEntry userPush;
     userPush.name = L"WpnUserService_test";
-    serviceRules = RulePresets::Generate(svchost, {userPush});
-    CheckAuto(!serviceRules.empty() &&
-              std::all_of(serviceRules.begin(), serviceRules.end(), [&](const Rule& rule) {
-                  return (rule.conds & CondService) && rule.services.size() == 1 &&
-                         rule.services.front().name == userPush.name;
-              }), "generation allowed unverified future services through a wildcard");
-    CheckAuto(RulePresets::Generate(L"C:\\Temp\\svchost.exe", {dns}).empty(),
+    userPush.display = L"Push notifications for test user";
+    ServiceEntry otherUserPush = userPush;
+    otherUserPush.name = L"WPNUSERSERVICE_other";
+    serviceRules = RulePresets::Generate(svchost, {userPush, otherUserPush, userPush});
+    CheckAuto(serviceRules.size() == 1 && serviceRules[0].appPath == svchost &&
+              serviceRules[0].proto == Proto::Tcp && serviceRules[0].dir == Dir::Out &&
+              serviceRules[0].conds == (CondProto | CondDirection | CondService | CondRemotePort) &&
+              serviceRules[0].remotePorts.size() == 1 && serviceRules[0].remotePorts[0].from == 443 &&
+              serviceRules[0].remotePorts[0].to == 443 && serviceRules[0].services.size() == 1 &&
+              serviceRules[0].services[0].name == L"WpnUserService_*" &&
+              serviceRules[0].services[0].display.empty() &&
+              serviceRules[0].name.find(L"WpnUserService_*") != std::wstring::npos,
+              "generation lost the user push wildcard or duplicated user instances");
+    const auto& pushPattern = serviceRules[0].services[0].name;
+    CheckAuto(ServiceNameMatches(pushPattern, L"WpnUserService_new") &&
+              !ServiceNameMatches(pushPattern, L"WpnService") &&
+              !ServiceNameMatches(pushPattern, L"OtherService"),
+              "generated user push mask rejected future instances or accepted another service");
+    RuleStore pushStore;
+    CheckAuto(RulePresets::ApplyGenerated(pushStore, serviceRules) == 1 &&
+              RulePresets::ApplyGenerated(pushStore, RulePresets::Generate(svchost, {otherUserPush})) == 0 &&
+              pushStore.Count() == 1, "user instance change duplicated the generated wildcard rule");
+    CheckAuto(RulePresets::Generate(L"C:\\Temp\\svchost.exe", {dns, userPush}).empty(),
               "generation accepted a non-system host for a system service");
 
     std::atomic_bool cancel{false};
@@ -1041,6 +1069,19 @@ void GeneratedRules(const std::wstring& signedPath, const std::wstring& unsigned
               std::all_of(result.rules.begin(), result.rules.end(),
                   [](const Rule& rule) { return rule.scope == RuleScope::PostApp; }),
               "generation unnecessarily verified a DLL of an untrusted host");
+    result = {};
+    for (bool trustedDll : {false, true}) {
+        const std::wstring& dll = trustedDll ? signedPath : unsignedPath;
+        result = RuleGenerator::VerifyCandidates({svchost},
+            {{userPush, svchost, dll}, {otherUserPush, svchost, dll}}, cancel, {});
+        CheckAuto(result.rules.size() == (trustedDll ? 3u : 2u) &&
+                  std::all_of(result.rules.begin(), result.rules.end(), [&](const Rule& rule) {
+                      return rule.scope == RuleScope::PostApp ||
+                          (trustedDll && rule.appPath == svchost && (rule.conds & CondService) &&
+                           rule.services.size() == 1 && rule.services[0].name == L"WpnUserService_*");
+                  }), "user push wildcard bypassed DLL verification or duplicated verified instances");
+        result = {};
+    }
 }
 
 void GeneratedExecutableSelection(const std::wstring& systemExe) {
@@ -1223,6 +1264,71 @@ void ServiceDllRegistry() {
               EqualNoCase(RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, keyPath), configured),
               "service DLL in parameters was not read");
     RegCloseKey(parameters);
+
+    HKEY base = nullptr, instance = nullptr;
+    CheckAuto(RegCreateKeyExW(key, L"WpnUserService", 0, nullptr, REG_OPTION_VOLATILE,
+                              KEY_ALL_ACCESS, nullptr, &base, nullptr) == ERROR_SUCCESS &&
+              RegCreateKeyExW(key, L"WpnUserService_53f14", 0, nullptr, REG_OPTION_VOLATILE,
+                              KEY_ALL_ACCESS, nullptr, &instance, nullptr) == ERROR_SUCCESS,
+              "cannot create test user service keys");
+    const auto setType = [](HKEY target, DWORD type) {
+        return RegSetValueExW(target, L"Type", 0, REG_DWORD,
+            reinterpret_cast<const BYTE*>(&type), sizeof(type)) == ERROR_SUCCESS;
+    };
+    constexpr DWORD userShared = SERVICE_USER_SERVICE | SERVICE_WIN32_SHARE_PROCESS;
+    constexpr DWORD userInstance = userShared | SERVICE_USERSERVICE_INSTANCE;
+    const std::wstring instancePath = keyPath + L"\\WpnUserService_53f14";
+    CheckAuto(setType(base, userShared) &&
+              RegCreateKeyExW(base, L"Parameters", 0, nullptr, REG_OPTION_VOLATILE,
+                              KEY_ALL_ACCESS, nullptr, &parameters, nullptr) == ERROR_SUCCESS &&
+              write(parameters, REG_EXPAND_SZ, L"%SystemRoot%\\System32\\WpnUserService.dll"),
+              "cannot configure test user service template");
+    CheckAuto(RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath).empty(),
+              "service without an instance type inherited another service DLL");
+    CheckAuto(setType(instance, userInstance) &&
+              EqualNoCase(RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath),
+                          SystemDirFile(L"WpnUserService.dll")),
+              "user service instance did not inherit its template DLL");
+    HKEY instanceParameters = nullptr;
+    CheckAuto(RegCreateKeyExW(instance, L"Parameters", 0, nullptr, REG_OPTION_VOLATILE,
+                              KEY_ALL_ACCESS, nullptr, &instanceParameters, nullptr) == ERROR_SUCCESS &&
+              EqualNoCase(RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath),
+                          SystemDirFile(L"WpnUserService.dll")),
+              "empty instance parameters prevented template DLL inheritance");
+    CheckAuto(write(instance, REG_SZ, configured) &&
+              EqualNoCase(RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath), configured) &&
+              write(instanceParameters, REG_SZ, SystemDirFile(L"instance.dll")) &&
+              EqualNoCase(RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath),
+                          SystemDirFile(L"instance.dll")),
+              "inherited DLL overrode the instance configuration");
+    CheckAuto(write(instanceParameters, REG_SZ, L"") &&
+              RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath).empty() &&
+              RegSetValueExW(instanceParameters, L"ServiceDll", 0, REG_DWORD,
+                             reinterpret_cast<const BYTE*>(&invalid), sizeof(invalid)) == ERROR_SUCCESS &&
+              RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath).empty(),
+              "invalid instance parameters fell back to another DLL");
+    CheckAuto(RegDeleteValueW(instanceParameters, L"ServiceDll") == ERROR_SUCCESS &&
+              write(instance, REG_SZ, L"") &&
+              RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath).empty() &&
+              RegDeleteValueW(instance, L"ServiceDll") == ERROR_SUCCESS,
+              "empty instance DLL fell back to its template");
+    CheckAuto(setType(instance, userShared) &&
+              RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath).empty() &&
+              setType(instance, SERVICE_USERSERVICE_INSTANCE | SERVICE_WIN32_SHARE_PROCESS) &&
+              RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath).empty() &&
+              setType(instance, userInstance) && setType(base, SERVICE_WIN32_SHARE_PROCESS) &&
+              RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath).empty() &&
+              setType(base, userInstance) &&
+              RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath).empty(),
+              "DLL inheritance accepted a non-user service or another instance as template");
+    CheckAuto(setType(base, userShared) && RegDeleteValueW(parameters, L"ServiceDll") == ERROR_SUCCESS &&
+              write(base, REG_SZ, configured) &&
+              EqualNoCase(RuleGenerator::ReadServiceDll(HKEY_CURRENT_USER, instancePath), configured),
+              "user service instance did not inherit the template root DLL");
+    RegCloseKey(instanceParameters);
+    RegCloseKey(parameters);
+    RegCloseKey(instance);
+    RegCloseKey(base);
 }
 
 void GeneratedOfficeAndFeedback(const std::wstring& systemExe, const wchar_t* unsignedExe) {
@@ -1275,7 +1381,10 @@ void GeneratedNewPrograms(const std::wstring& systemExe, const wchar_t* unsigned
     const Program programs[] = {
         {L"BackgroundDownload.exe", 1}, {L"Blend.exe", 1}, {L"PerfWatson2.exe", 1},
         {L"iTunes.exe", 4}, {L"Wireshark.exe", 1}, {L"SIHClient.exe", 1}, {L"taskhostw.exe", 2},
-        {L"git-remote-https.exe", 4}, {L"steamservice.exe", 1}, {L"SearchHost.exe", 1}
+        {L"git-remote-https.exe", 4}, {L"steamservice.exe", 1}, {L"SearchHost.exe", 1},
+        {L"SoftLandingTask.exe", 1}, {L"Y.Music.exe", 1},
+        {L"XboxPcApp.exe", 1}, {L"XboxPcAppFT.exe", 1}, {L"Telegram.exe", 3},
+        {L"Time.exe", 1}, {L"PAD.Console.Host.exe", 1}, {L"msedgewebview2.exe", 5}
     };
     TempDirectory signedDir, unsignedDir, excludedDir;
     std::vector<std::wstring> candidates;
@@ -1323,6 +1432,24 @@ void GeneratedNewPrograms(const std::wstring& systemExe, const wchar_t* unsigned
                   std::all_of(rules.begin(), rules.end(), [](const Rule* rule) {
                       return rule->scope == RuleScope::App && rule->action == RuleAction::Allow;
                   }), "new program did not receive its complete template");
+        if (EqualNoCase(program.name, L"msedgewebview2.exe")) {
+            CheckAuto(std::count_if(rules.begin(), rules.end(), [](const Rule* rule) {
+                return rule->proto == Proto::Udp && rule->dir == Dir::Out &&
+                    rule->conds == (CondProto | CondDirection | CondRemotePort) &&
+                    rule->remotePorts.size() == 1 && rule->remotePorts[0].from == 3478 &&
+                    rule->remotePorts[0].to == 3478 && rule->localPorts.empty() &&
+                    rule->remoteAddrs.empty() && rule->localAddrs.empty();
+            }) == 1, "WebView2 generation omitted or widened the STUN rule");
+            continue;
+        }
+        if (EqualNoCase(program.name, L"Telegram.exe")) {
+            CheckAuto(std::any_of(rules.begin(), rules.end(), [](const Rule* rule) {
+                return rule->proto == Proto::Tcp && std::any_of(rule->remotePorts.begin(),
+                    rule->remotePorts.end(), [](const PortItem& port) {
+                        return port.from == 5222 && port.to == 5222;
+                    });
+            }), "Telegram generation omitted its existing TCP 5222 port");
+        }
         for (uint16_t port : {uint16_t{80}, uint16_t{443}}) {
             CheckAuto(std::any_of(rules.begin(), rules.end(), [&](const Rule* rule) {
                 return rule->proto == Proto::Tcp && rule->dir == Dir::Out &&
@@ -1539,9 +1666,14 @@ int main(int argc, char** argv) {
             return (rule.conds & CondService) && std::any_of(rule.services.begin(), rule.services.end(),
                 [](const ServiceItem& service) { return EqualNoCase(service.name, L"DoSvc"); });
         });
+        const auto userPushRules = std::count_if(result.rules.begin(), result.rules.end(), [](const Rule& rule) {
+            return (rule.conds & CondService) && std::any_of(rule.services.begin(), rule.services.end(),
+                [](const ServiceItem& service) { return service.name == L"WpnUserService_*"; });
+        });
         std::cout << "Candidates checked: " << total << ", trusted files: " << result.files.size()
                   << ", generated rules: " << result.rules.size()
-                  << ", Visual Studio rules: " << visualRules << ", DoSvc rules: " << doSvcRules << '\n';
+                  << ", Visual Studio rules: " << visualRules << ", DoSvc rules: " << doSvcRules
+                  << ", WpnUserService_* rules: " << userPushRules << '\n';
         for (const auto& [name, label] : {
                 std::pair{L"FeedbackHub.exe", "FeedbackHub.exe"},
                 std::pair{L"MSPUB.EXE", "MSPUB.EXE"},
@@ -1553,7 +1685,13 @@ int main(int argc, char** argv) {
                 std::pair{L"iTunes.exe", "iTunes.exe"},
                 std::pair{L"Wireshark.exe", "Wireshark.exe"},
                 std::pair{L"SIHClient.exe", "SIHClient.exe"},
-                std::pair{L"taskhostw.exe", "taskhostw.exe"}}) {
+                std::pair{L"taskhostw.exe", "taskhostw.exe"},
+                std::pair{L"XboxPcApp.exe", "XboxPcApp.exe"},
+                std::pair{L"XboxPcAppFT.exe", "XboxPcAppFT.exe"},
+                std::pair{L"Telegram.exe", "Telegram.exe"},
+                std::pair{L"Time.exe", "Time.exe"},
+                std::pair{L"PAD.Console.Host.exe", "PAD.Console.Host.exe"},
+                std::pair{L"msedgewebview2.exe", "msedgewebview2.exe"}}) {
             const auto count = std::count_if(result.rules.begin(), result.rules.end(), [&](const Rule& rule) {
                 return EqualNoCase(rule.appName, name);
             });
@@ -1583,7 +1721,7 @@ int main(int argc, char** argv) {
                                 L"TeamViewer_Service.exe", L"AppHostRegistrationVerifier.exe",
                                 L"backgroundTaskHost.exe", L"HxOutlook.exe", L"WWAHost.exe",
                                 L"Photos.exe", L"wslservice.exe", L"git-remote-https.exe", L"steamservice.exe",
-                                L"SearchHost.exe"})
+                                L"SearchHost.exe", L"SoftLandingTask.exe", L"Y.Music.exe", L"MoUsoCoreWorker.exe"})
         CheckAuto(CopyFileW(systemExe.c_str(), dir.File(name).c_str(), FALSE),
                   "cannot copy captured-preset test executable");
     GeneratedIgmp(dir.File(L"generation.db"));
@@ -1633,6 +1771,16 @@ int main(int argc, char** argv) {
                                               Proto::Tcp, L"192.168.0.225", L"23.11.40.157");
     AppStorageTestAccess::SignedCapturedPreset(dir.File(L"SearchHost.exe"), 80, 1, 49733, 443,
                                               Proto::Tcp, L"192.168.0.225", L"23.11.40.157");
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"SoftLandingTask.exe"), 81, 1, 54085, 80,
+                                              Proto::Tcp, L"192.168.219.24", L"20.76.64.74");
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"SoftLandingTask.exe"), 82, 1, 54085, 443,
+                                              Proto::Tcp, L"192.168.219.24", L"20.76.64.74");
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"Y.Music.exe"), 83, 1, 57179, 80,
+                                              Proto::Tcp, L"192.168.219.24", L"141.8.134.77");
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"Y.Music.exe"), 84, 1, 57179, 443,
+                                              Proto::Tcp, L"192.168.219.24", L"141.8.134.77");
+    AppStorageTestAccess::SignedCapturedPreset(dir.File(L"MoUsoCoreWorker.exe"), 85, 1, 41085, 443,
+                                              Proto::Tcp, L"192.0.2.1", L"198.51.100.1");
     AppStorageTestAccess::SignedCapturedPreset(dir.File(L"explorer.exe"), 49, 1, 40049, 80,
                                               Proto::Tcp, L"192.0.2.1", L"198.51.100.1");
     AppStorageTestAccess::SignedCapturedPreset(dir.File(L"MpCmdRun.exe"), 50, 1, 40050, 443,

@@ -61,6 +61,7 @@ inline constexpr PortItem pPrint[] = { {515, 515}, {631, 631}, {9100, 9100} };
 inline constexpr PortItem pMdns[] = { {5353, 5353} };
 inline constexpr PortItem pLlmnr[] = { {5355, 5355} };
 inline constexpr PortItem pRustDesk21116[] = { {21116, 21116} };
+inline constexpr PortItem pStun3478[] = { {3478, 3478} };
 inline constexpr PortItem pWebMail[] = { {443, 443}, {465, 465}, {587, 587}, {993, 993}, {995, 995} };
 inline constexpr PortItem pWebTelegram[] = { {443, 443}, {80, 80}, {5222, 5222} };
 inline constexpr PortItem pWebSteam[] = { {443, 443}, {80, 80}, {27015, 27050} };
@@ -287,6 +288,9 @@ inline constexpr NetworkRule httpsOrHttp[] = { httpsHttp };
 inline constexpr NetworkRule webview2[] = {
     https, quic, {IDS_PRESET_RULE_DNS_UDP, Proto::Udp, Dir::Out, pDns, {}, aDoh}
 };
+inline constexpr NetworkRule webview2Stun[] = {
+    {IDS_PRESET_RULE_STUN_UDP_3478, Proto::Udp, Dir::Out, pStun3478}
+};
 inline constexpr NetworkRule webview2Mdns[] = {
     {IDS_PRESET_RULE_MDNS, Proto::Udp, Dir::Unknown, pMdns, pMdns}
 };
@@ -496,6 +500,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_ONEDRIVE_UPDATER, L"OneDriveUpdaterService.exe", httpsOrHttp,
         Host::AppService, L"OneDrive Updater Service"},
     {IDS_PRESET_YANDEX_DISK, L"YandexDisk4.exe", yandexDisk},
+    {IDS_PRESET_YANDEX_MUSIC, L"Y.Music.exe", httpsOrHttp},
     {IDS_PRESET_MSI_INSTALLER, L"msiexec.exe", httpOnly, Host::AppService, L"msiserver"},
     {IDS_PRESET_WEB_TOOLS, L"curl.exe;wget.exe;winget.exe;code.exe", web},
     {IDS_PRESET_PWSH_TCP_LOOPBACK, L"pwsh.exe", pwshTcpLoopback},
@@ -537,8 +542,10 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_SMARTSCREEN, L"smartscreen.exe", httpsOnly},
     {IDS_PRESET_WEB_EXPERIENCE, L"WebExperienceHostApp.exe", httpsOrHttp},
     {IDS_PRESET_WINDOWS_BACKUP, L"WindowsBackupClient.exe", httpsOnly},
+    {IDS_PRESET_WINDOWS_CLOCK, L"Time.exe", httpsOrHttp},
+    {IDS_PRESET_POWER_AUTOMATE, L"PAD.Console.Host.exe", httpsOrHttp},
     {IDS_PRESET_XBOX_PC_APP, L"XboxPcApp.exe", httpsOrHttp},
-    {IDS_PRESET_XBOX_PC_APP_FT, L"XboxPcAppFT.exe", httpsOnly},
+    {IDS_PRESET_XBOX_PC_APP_FT, L"XboxPcAppFT.exe", httpsOrHttp},
     {IDS_PRESET_FEEDBACK_HUB, L"FeedbackHub.exe", httpsOrHttp},
     {IDS_PRESET_WUDF_HOST, L"WUDFHost.exe", loopbackTcpOnly},
     {IDS_PRESET_EXCEL, L"EXCEL.EXE", httpsOnly},
@@ -562,12 +569,14 @@ inline constexpr Preset presets[] = {
         Host::AppService, L"MDCoreSvc"},
     {IDS_PRESET_TEAMS_UPDATE, L"ms-teamsupdate.exe", httpsOnly},
     {IDS_PRESET_WEBVIEW2, L"msedgewebview2.exe", webview2},
+    {IDS_PRESET_WEBVIEW2_STUN, L"msedgewebview2.exe", webview2Stun},
     {IDS_PRESET_WEBVIEW2_MDNS, L"msedgewebview2.exe", webview2Mdns},
     {IDS_PRESET_OFFICE_CLIENT, L"OfficeC2RClient.exe", httpsOnly},
     {IDS_PRESET_OFFICE_SERVICE, L"OfficeClickToRun.exe", httpsOrHttp,
         Host::AppService, L"ClickToRunSvc"},
     {IDS_PRESET_ONENOTE, L"ONENOTE.EXE", httpsOnly},
     {IDS_PRESET_SEARCH_HOST, L"SearchHost.exe", httpsOrHttp},
+    {IDS_PRESET_SOFT_LANDING_TASK, L"SoftLandingTask.exe", httpsOrHttp},
     {IDS_PRESET_SOLITAIRE, L"Solitaire.exe", httpsOrHttp},
     {IDS_PRESET_GIT, L"git.exe;git-remote-https.exe;git-remote-http.exe", git},
     {IDS_PRESET_GIT_HTTPS_LOOPBACK, L"git-remote-https.exe", gitHttpsLoopback},
@@ -590,6 +599,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_LICENSE_MANAGER, L"svchost.exe", httpsOnly, Host::Service, L"LicenseManager"},
     {IDS_PRESET_MICROSOFT_ACCOUNT, L"svchost.exe", httpsOrHttp, Host::Service, L"wlidsvc"},
     {IDS_PRESET_WAAS_MEDIC, L"svchost.exe", httpsOnly, Host::Service, L"WaaSMedicSvc"},
+    {IDS_PRESET_WISVC, L"svchost.exe", httpsOrHttp, Host::Service, L"wisvc"},
     {IDS_PRESET_DIAGTRACK_BLOCK, L"svchost.exe", httpsBlock, Host::Service, L"DiagTrack"},
     {IDS_PRESET_SHARED_ACCESS_DNS, L"svchost.exe", sharedAccessDns, Host::Service, L"SharedAccess"},
     {IDS_PRESET_SHARED_ACCESS_DHCP, L"svchost.exe", sharedAccessDhcp, Host::Service, L"SharedAccess"},

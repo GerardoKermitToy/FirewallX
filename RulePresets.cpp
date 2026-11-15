@@ -437,13 +437,19 @@ std::vector<Rule> Generate(const std::wstring& path, const std::vector<ServiceEn
         if (preset.host == Data::Host::Service || preset.host == Data::Host::AppService ||
             preset.host == Data::Host::SystemServiceGroup) {
             for (const ServiceEntry& service : services) {
-                if (!ListedService(preset.services, service.name).empty())
-                    matched.push_back({service.name, service.display});
+                const std::wstring_view pattern = ListedService(preset.services, service.name);
+                if (pattern.empty()) continue;
+                ServiceItem condition{service.name, service.display};
+                if (pattern.find(L'*') != std::wstring_view::npos)
+                    condition = {std::wstring(pattern), {}};
+                if (std::none_of(matched.begin(), matched.end(), [&](const ServiceItem& item) {
+                    return EqualNoCase(item.name, condition.name);
+                })) matched.push_back(std::move(condition));
             }
             if (matched.empty()) continue;
         }
         if (preset.host == Data::Host::Service || preset.host == Data::Host::AppService) {
-            // Только проверенный ключ SCM, а не маска для ещё не проверенных служб.
+            // Маска из каталога сохраняется после проверки хотя бы одного экземпляра.
             for (const ServiceItem& service : matched)
                 AppendRules(result, request, preset, &service, {});
         } else {

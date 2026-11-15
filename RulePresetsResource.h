@@ -228,6 +228,13 @@
 #define IDS_PRESET_STEAM_SERVICE            2319
 #define IDS_PRESET_SHARED_ACCESS_DNS        2320
 #define IDS_PRESET_RULE_DNS_SERVER_UDP      2321
+#define IDS_PRESET_SOFT_LANDING_TASK        2322
+#define IDS_PRESET_WISVC                    2323
+#define IDS_PRESET_YANDEX_MUSIC             2324
+#define IDS_PRESET_WINDOWS_CLOCK            2325
+#define IDS_PRESET_WEBVIEW2_STUN             2326
+#define IDS_PRESET_POWER_AUTOMATE            2327
+#define IDS_PRESET_RULE_STUN_UDP_3478        2328
 
 /* Группы интерфейсов; все переводы также в RulePresets.rc. */
 #define IDS_INTERFACE_UNKNOWN             2110
