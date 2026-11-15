@@ -236,6 +236,12 @@
 #define IDS_PRESET_POWER_AUTOMATE            2327
 #define IDS_PRESET_RULE_STUN_UDP_3478        2328
 #define IDS_PRESET_XBL_AUTH_MANAGER          2329
+#define IDS_PRESET_APP_INSTALLER             2330
+#define IDS_PRESET_WHATSAPP                  2331
+#define IDS_PRESET_AMP_LIBRARY_AGENT         2332
+#define IDS_PRESET_APPLE_MUSIC               2333
+#define IDS_PRESET_RULE_WEB_WHATSAPP_TCP     2334
+#define IDS_PRESET_RULE_WEB_APPLE_TCP        2335
 
 /* Группы интерфейсов; все переводы также в RulePresets.rc. */
 #define IDS_INTERFACE_UNKNOWN             2110

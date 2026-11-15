@@ -64,6 +64,7 @@ inline constexpr PortItem pRustDesk21116[] = { {21116, 21116} };
 inline constexpr PortItem pStun3478[] = { {3478, 3478} };
 inline constexpr PortItem pWebMail[] = { {443, 443}, {465, 465}, {587, 587}, {993, 993}, {995, 995} };
 inline constexpr PortItem pWebTelegram[] = { {443, 443}, {80, 80}, {5222, 5222} };
+inline constexpr PortItem pWebApple[] = { {443, 443}, {80, 80}, {5223, 5223} };
 inline constexpr PortItem pWebSteam[] = { {443, 443}, {80, 80}, {27015, 27050} };
 inline constexpr PortItem pWebAnyDesk[] = { {443, 443}, {80, 80}, {6568, 6568} };
 inline constexpr PortItem pWebRustDesk[] = { {443, 443}, {80, 80}, {21115, 21116} };
@@ -174,6 +175,10 @@ inline constexpr NetworkRule loopbackTcp4HostAny = {
     IDS_PRESET_RULE_LOOPBACK_TCP_IPV4, Proto::Tcp, Dir::Unknown, {}, {}, aLoopback4Host,
     {}, RuleAction::Allow, aLoopback4Host
 };
+inline constexpr NetworkRule loopbackUdp4HostAny = {
+    IDS_PRESET_RULE_LOOPBACK_UDP, Proto::Udp, Dir::Unknown, {}, {}, aLoopback4Host,
+    {}, RuleAction::Allow, aLoopback4Host
+};
 inline constexpr NetworkRule gitHttpsLoopback[] = { loopbackTcp4HostAny };
 inline constexpr NetworkRule systemTcpLoopback[] = {
     loopbackTcp4HostAny,
@@ -266,6 +271,9 @@ inline constexpr NetworkRule discordHttp[] = { http };
 inline constexpr NetworkRule telegram[] = {
     {IDS_PRESET_RULE_WEB_TELEGRAM_TCP, Proto::Tcp, Dir::Out, pWebTelegram}, dnsUdp, dnsTcp
 };
+inline constexpr NetworkRule whatsApp[] = {
+    {IDS_PRESET_RULE_WEB_WHATSAPP_TCP, Proto::Tcp, Dir::Out, pWebTelegram}
+};
 inline constexpr NetworkRule steam[] = {
     webSteamTcp, quicSteamUdp, dnsUdp, dnsTcp, loopbackTcpIn
 };
@@ -297,11 +305,15 @@ inline constexpr NetworkRule webview2Mdns[] = {
 // Для iTunes ограничиваем локальный обмен точным IPv4-адресом на обоих концах.
 inline constexpr NetworkRule iTunes[] = {
     loopbackTcp4HostAny,
-    {IDS_PRESET_RULE_LOOPBACK_UDP, Proto::Udp, Dir::Unknown, {}, {}, aLoopback4Host,
-        {}, RuleAction::Allow, aLoopback4Host},
+    loopbackUdp4HostAny,
     httpsHttp,
     webview2Mdns[0]
 };
+inline constexpr NetworkRule ampLibraryAgent[] = {
+    {IDS_PRESET_RULE_WEB_APPLE_TCP, Proto::Tcp, Dir::Out, pWebApple},
+    loopbackTcp4HostAny, loopbackUdp4HostAny, webview2Mdns[0]
+};
+inline constexpr NetworkRule appleMusic[] = { loopbackUdp4HostAny, httpsHttp };
 // mDNS ограничен показанными multicast-адресами и портами; DNS — системными серверами.
 inline constexpr NetworkRule copilotApp[] = {
     {IDS_PRESET_RULE_DNS_UDP, Proto::Udp, Dir::Out, pDns, {}, aDoh},
@@ -483,6 +495,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_VMWARE_AUTHD, L"vmware-authd.exe", vmwareAuthd, Host::AppService, L"VMAuthdService"},
     {IDS_PRESET_VMWARE, L"vmware.exe", vmware},
     {IDS_PRESET_TELEGRAM, L"telegram.exe", telegram},
+    {IDS_PRESET_WHATSAPP, L"WhatsApp.Root.exe", whatsApp},
     {IDS_PRESET_STEAM, L"steam.exe", steam},
     {IDS_PRESET_STEAM, L"steamwebhelper.exe", steamWebHelper},
     {IDS_PRESET_STEAM_ERROR_REPORTER, L"steamerrorreporter64.exe", steamErrorReporter},
@@ -511,9 +524,12 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_BLEND, L"Blend.exe", httpsOrHttp},
     {IDS_PRESET_PERFWATSON, L"PerfWatson2.exe", httpsOrHttp},
     {IDS_PRESET_ITUNES, L"iTunes.exe", iTunes},
+    {IDS_PRESET_AMP_LIBRARY_AGENT, L"AMPLibraryAgent.exe", ampLibraryAgent},
+    {IDS_PRESET_APPLE_MUSIC, L"AppleMusic.exe", appleMusic},
     {IDS_PRESET_WIRESHARK, L"Wireshark.exe", httpsOrHttp},
     {IDS_PRESET_SIH_CLIENT, L"SIHClient.exe", httpsOrHttp},
     {IDS_PRESET_WINDOWS_PACKAGE_MANAGER, L"windowspackagemanagerserver.exe", systemWeb},
+    {IDS_PRESET_APP_INSTALLER, L"AppInstaller.exe", httpsOrHttp},
     {IDS_PRESET_MICROSOFT_STORE, L"winstore.app.exe", systemWeb},
     {IDS_PRESET_IGMP, L"", igmp, Host::PostAppPidZero},
     {IDS_PRESET_IGMP_IN, L"", igmpIn, Host::PostAppPidZero},

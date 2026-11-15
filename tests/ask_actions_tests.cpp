@@ -178,7 +178,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_XBL_AUTH_MANAGER; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_WEB_APPLE_TCP; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -1795,6 +1795,164 @@ void TestITunesPreset() {
               RulePresets::Apply(store, request, translated.rules) == 0 &&
               store.Count() == 4 && store.version() == version,
               "localized iTunes preset was lost or duplicated");
+    }
+    SetUiLang(previous);
+}
+
+void TestNewStorePresets() {
+    struct Profile {
+        const wchar_t* path;
+        UINT titleId;
+        size_t count;
+        std::vector<uint16_t> ports;
+        bool tcpLoopback;
+        bool udpLoopback;
+        bool mdns;
+    };
+    const Profile profiles[] = {
+        {LR"(C:\Program Files\WindowsApps\Microsoft.DesktopAppInstaller_1.29.379.0_x64__8wekyb3d8bbwe\AppInstaller.exe)",
+            IDS_PRESET_APP_INSTALLER, 1, {443, 80}, false, false, false},
+        {LR"(C:\Program Files\WindowsApps\5319275A.WhatsAppDesktop_2.2644.101.0_x64__cv1g1gvanyjgm\WhatsApp.Root.exe)",
+            IDS_PRESET_WHATSAPP, 1, {443, 80, 5222}, false, false, false},
+        {LR"(C:\Program Files\WindowsApps\AppleInc.AppleMusicWin_1.1792.39942.0_x64__nzyj5cx40ttqa\AMPLibraryAgent.exe)",
+            IDS_PRESET_AMP_LIBRARY_AGENT, 4, {443, 80, 5223}, true, true, true},
+        {LR"(C:\Program Files\WindowsApps\AppleInc.AppleMusicWin_1.1792.39942.0_x64__nzyj5cx40ttqa\AppleMusic.exe)",
+            IDS_PRESET_APPLE_MUSIC, 2, {443, 80}, false, true, false}
+    };
+    const UiLang previous = CurrentUiLang();
+    SetUiLang(UiLang::English);
+    for (const Profile& profile : profiles) {
+        AskRequest request = Request(profile.path, Proto::Tcp, 443, L"203.0.113.30");
+        request.key.local = Ip(L"192.0.2.10");
+        request.key.lport = 49708;
+        request.conditionFlags = 1;
+        request.interfaceName = std::make_shared<const std::wstring>(L"Captured Ethernet");
+        const auto choices = RulePresets::Suggest(request);
+        Check(choices.size() == 1, "new Store application did not receive exactly its own preset");
+        const auto& preset = ChoiceOf(choices, profile.titleId);
+        Check(preset.title == LoadStringRes(profile.titleId) && preset.rules.size() == profile.count,
+              "new Store preset lost its title or rule count");
+        const Rule* web = nullptr;
+        size_t tcpLoopback = 0, udpLoopback = 0, mdns = 0;
+        for (const Rule& rule : preset.rules) {
+            Check(rule.scope == RuleScope::App && rule.appPath == request.appPath &&
+                  rule.action == RuleAction::Allow && rule.services.empty() &&
+                  rule.interfaceName.empty() && rule.conditionFlags == 0 && !rule.autoName,
+                  "new Store preset lost its application scope or pinned a temporary condition");
+            if (rule.conds == (CondProto | CondDirection | CondRemotePort)) {
+                Check(!web && rule.proto == Proto::Tcp && rule.dir == Dir::Out &&
+                      rule.remotePorts.size() == profile.ports.size() && rule.localPorts.empty() &&
+                      rule.remoteAddrs.empty() && rule.localAddrs.empty(),
+                      "new Store web rule added unrelated restrictions or protocols");
+                web = &rule;
+                for (size_t i = 0; i < profile.ports.size(); ++i)
+                    Check(rule.remotePorts[i].from == profile.ports[i] &&
+                          rule.remotePorts[i].to == profile.ports[i],
+                          "new Store web rule widened or omitted a TCP port");
+            } else if (rule.conds == (CondProto | CondRemoteAddr | CondLocalAddr)) {
+                Check(rule.dir == Dir::Unknown && rule.remotePorts.empty() && rule.localPorts.empty() &&
+                      rule.remoteAddrs.size() == 1 && rule.remoteAddrs[0].addr == Ip(L"127.0.0.1") &&
+                      rule.remoteAddrs[0].prefix == -1 && rule.localAddrs.size() == 1 &&
+                      rule.localAddrs[0].addr == Ip(L"127.0.0.1") && rule.localAddrs[0].prefix == -1 &&
+                      ((rule.proto == Proto::Tcp && profile.tcpLoopback) ||
+                       (rule.proto == Proto::Udp && profile.udpLoopback)),
+                      "Apple loopback rule widened its endpoints, protocols or direction");
+                if (rule.proto == Proto::Tcp) ++tcpLoopback;
+                else ++udpLoopback;
+                for (Dir dir : {Dir::In, Dir::Out}) {
+                    AskRequest flow = Request(profile.path, rule.proto, 65535, L"127.0.0.1");
+                    flow.key.local = Ip(L"127.0.0.1");
+                    flow.key.lport = 1;
+                    flow.dir = dir;
+                    Check(RuleStore::MatchesRule(rule, flow.ToQuery()) &&
+                          RulePresets::Suggest(flow).size() == 1,
+                          "Apple loopback preset rejected arbitrary ports or directions");
+                    for (const wchar_t* address : {L"127.0.0.2", L"::1", L"192.0.2.20"}) {
+                        AskRequest wrong = flow;
+                        wrong.key.local = Ip(address);
+                        Check(!RuleStore::MatchesRule(rule, wrong.ToQuery()),
+                              "Apple loopback rule accepted another local address");
+                        wrong = flow;
+                        wrong.key.remote = Ip(address);
+                        Check(!RuleStore::MatchesRule(rule, wrong.ToQuery()),
+                              "Apple loopback rule accepted another remote address");
+                    }
+                }
+            } else {
+                Check(profile.mdns && rule.proto == Proto::Udp && rule.dir == Dir::Unknown &&
+                      rule.conds == (CondProto | CondRemotePort | CondLocalPort) &&
+                      rule.remotePorts.size() == 1 && rule.remotePorts[0].from == 5353 &&
+                      rule.remotePorts[0].to == 5353 && rule.localPorts.size() == 1 &&
+                      rule.localPorts[0].from == 5353 && rule.localPorts[0].to == 5353 &&
+                      rule.remoteAddrs.empty() && rule.localAddrs.empty(),
+                      "Apple mDNS rule lost its paired ports or added unrelated restrictions");
+                ++mdns;
+                for (Dir dir : {Dir::In, Dir::Out}) {
+                    AskRequest flow = Request(profile.path, Proto::Udp, 5353, L"224.0.0.251");
+                    flow.dir = dir;
+                    flow.key.lport = 5353;
+                    Check(RuleStore::MatchesRule(rule, flow.ToQuery()), "Apple mDNS rule rejected paired ports");
+                    flow.key.local = Ip(L"2001:db8::1");
+                    flow.key.remote = Ip(L"ff02::fb");
+                    Check(RuleStore::MatchesRule(rule, flow.ToQuery()), "Apple mDNS rule pinned IPv4 addresses");
+                    flow.key.rport = 5354;
+                    Check(!RuleStore::MatchesRule(rule, flow.ToQuery()), "Apple mDNS accepted another remote port");
+                    flow.key.rport = 5353;
+                    flow.key.lport = 5354;
+                    Check(!RuleStore::MatchesRule(rule, flow.ToQuery()), "Apple mDNS accepted another local port");
+                }
+            }
+        }
+        Check(web && tcpLoopback == size_t(profile.tcpLoopback) &&
+              udpLoopback == size_t(profile.udpLoopback) && mdns == size_t(profile.mdns),
+              "new Store preset omitted or duplicated a required rule");
+        for (uint16_t port : profile.ports) {
+            AskRequest flow = request;
+            flow.key.rport = port;
+            flow.key.lport = 60000;
+            flow.key.local = Ip(L"2001:db8::1");
+            flow.key.remote = Ip(L"2001:db8::2");
+            flow.conditionFlags.reset();
+            flow.interfaceName = std::make_shared<const std::wstring>(L"Another interface");
+            Check(RuleStore::MatchesRule(*web, flow.ToQuery()) && RulePresets::Suggest(flow).size() == 1,
+                  "new Store web rule pinned endpoints or omitted an allowed port");
+        }
+        AskRequest wrong = request;
+        wrong.key.rport = 8443;
+        Check(RulePresets::Suggest(wrong).empty() && !RuleStore::MatchesRule(*web, wrong.ToQuery()),
+              "new Store web preset accepted an unrelated port");
+        wrong = request;
+        wrong.key.proto = Proto::Udp;
+        Check(RulePresets::Suggest(wrong).empty() && !RuleStore::MatchesRule(*web, wrong.ToQuery()),
+              "new Store web preset accepted UDP");
+        wrong = request;
+        wrong.appPath = L"C:\\Other\\" + PathBaseUpper(request.appPath);
+        Check(RulePresets::Suggest(wrong).size() == 1 && !RuleStore::MatchesRule(*web, wrong.ToQuery()),
+              "new Store preset lost version independence or exact executable scope");
+        wrong = request;
+        wrong.appPath = L"C:\\Other\\unrelated.exe";
+        Check(RulePresets::Suggest(wrong).empty(), "new Store preset matched another executable");
+        wrong = request;
+        wrong.ownerAmbiguous = true;
+        Check(RulePresets::Suggest(wrong).empty(), "ambiguous owner received a new Store preset");
+        if (profile.titleId == IDS_PRESET_WHATSAPP)
+            Check(web->name.find(L"Telegram") == std::wstring::npos, "WhatsApp rule was named after Telegram");
+        RuleStore store;
+        Check(RulePresets::Apply(store, request, preset.rules) == profile.count && store.Count() == profile.count,
+              "cannot apply new Store preset");
+        const uint64_t version = store.version();
+        size_t count = 0;
+        const UiLangInfo* languages = UiLangs(count);
+        for (size_t i = 0; i < count; ++i) {
+            SetUiLang(languages[i].lang);
+            const auto localized = RulePresets::Suggest(request);
+            const auto& translated = ChoiceOf(localized, profile.titleId);
+            Check(translated.title == LoadStringRes(profile.titleId) && translated.rules.size() == profile.count &&
+                  RulePresets::Apply(store, request, translated.rules) == 0 &&
+                  store.Count() == profile.count && store.version() == version,
+                  "localized Store preset lost its title or duplicated rules");
+        }
+        SetUiLang(UiLang::English);
     }
     SetUiLang(previous);
 }
@@ -3419,7 +3577,7 @@ void TestRemoteAccessPresets() {
 void TestWebview2StunPreset() {
     const UiLang previous = CurrentUiLang();
     SetUiLang(UiLang::English);
-    const std::wstring path = L"C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\157.0.4341.46\\msedgewebview2.exe";
+    const std::wstring path = L"C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\157.0.4341.60\\msedgewebview2.exe";
     AskRequest request = Request(path, Proto::Udp, 3478, L"91.235.132.129");
     request.key.local = Ip(L"192.168.219.24");
     request.key.lport = 65082;
@@ -3508,6 +3666,7 @@ void TestWebview2StunPreset() {
 }
 
 void TestCapturedConnectionPresets() {
+    TestNewStorePresets();
     TestWebview2StunPreset();
     struct Profile {
         std::wstring path;

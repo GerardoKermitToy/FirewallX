@@ -1401,8 +1401,16 @@ void GeneratedNewPrograms(const std::wstring& systemExe, const wchar_t* unsigned
         {L"git-remote-https.exe", 4}, {L"steamservice.exe", 1}, {L"SearchHost.exe", 1},
         {L"SoftLandingTask.exe", 1}, {L"Y.Music.exe", 1},
         {L"XboxPcApp.exe", 1}, {L"XboxPcAppFT.exe", 1}, {L"Telegram.exe", 3},
-        {L"Time.exe", 1}, {L"PAD.Console.Host.exe", 1}, {L"msedgewebview2.exe", 5}
+        {L"Time.exe", 1}, {L"PAD.Console.Host.exe", 1}, {L"msedgewebview2.exe", 5},
+        {L"AppInstaller.exe", 1}, {L"WhatsApp.Root.exe", 1},
+        {L"AMPLibraryAgent.exe", 4}, {L"AppleMusic.exe", 2}
     };
+    const std::wstring webviewPath = LR"(C:\Program Files (x86)\Microsoft\EdgeWebView\Application\157.0.4341.60\msedgewebview2.exe)";
+    const auto webviewRules = RulePresets::Generate(webviewPath, {});
+    CheckAuto(webviewRules.size() == 5 &&
+              std::all_of(webviewRules.begin(), webviewRules.end(), [&](const Rule& rule) {
+                  return rule.scope == RuleScope::App && rule.appPath == webviewPath;
+              }), "WebView2 versioned path lost its complete application-scoped presets");
     TempDirectory signedDir, unsignedDir, excludedDir;
     std::vector<std::wstring> candidates;
     const auto executables = RulePresets::Executables();
@@ -1459,13 +1467,13 @@ void GeneratedNewPrograms(const std::wstring& systemExe, const wchar_t* unsigned
             }) == 1, "WebView2 generation omitted or widened the STUN rule");
             continue;
         }
-        if (EqualNoCase(program.name, L"Telegram.exe")) {
+        if (EqualNoCase(program.name, L"Telegram.exe") || EqualNoCase(program.name, L"WhatsApp.Root.exe")) {
             CheckAuto(std::any_of(rules.begin(), rules.end(), [](const Rule* rule) {
                 return rule->proto == Proto::Tcp && std::any_of(rule->remotePorts.begin(),
                     rule->remotePorts.end(), [](const PortItem& port) {
                         return port.from == 5222 && port.to == 5222;
                     });
-            }), "Telegram generation omitted its existing TCP 5222 port");
+            }), "messenger generation omitted its TCP 5222 port");
         }
         for (uint16_t port : {uint16_t{80}, uint16_t{443}}) {
             CheckAuto(std::any_of(rules.begin(), rules.end(), [&](const Rule* rule) {
@@ -1488,24 +1496,34 @@ void GeneratedNewPrograms(const std::wstring& systemExe, const wchar_t* unsigned
                     rule->remotePorts.empty() && rule->localPorts.empty();
             }) == 1, "Git HTTPS generation omitted or duplicated the exact loopback rule");
         }
-        if (EqualNoCase(program.name, L"iTunes.exe")) {
+        if (EqualNoCase(program.name, L"AMPLibraryAgent.exe"))
+            CheckAuto(std::any_of(rules.begin(), rules.end(), [](const Rule* rule) {
+                return rule->proto == Proto::Tcp && rule->dir == Dir::Out &&
+                    std::any_of(rule->remotePorts.begin(), rule->remotePorts.end(), [](const PortItem& port) {
+                        return port.from == 5223 && port.to == 5223;
+                    });
+            }), "Apple library agent generation omitted TCP 5223");
+        if (EqualNoCase(program.name, L"iTunes.exe") || EqualNoCase(program.name, L"AMPLibraryAgent.exe") ||
+            EqualNoCase(program.name, L"AppleMusic.exe")) {
             IpAddr loopback;
             CheckAuto(ParseIpAddr(L"127.0.0.1", loopback), "cannot parse loopback address");
             for (Proto proto : {Proto::Tcp, Proto::Udp}) {
+                if (EqualNoCase(program.name, L"AppleMusic.exe") && proto == Proto::Tcp) continue;
                 CheckAuto(std::any_of(rules.begin(), rules.end(), [&](const Rule* rule) {
                     return rule->proto == proto && rule->dir == Dir::Unknown &&
                         rule->conds == (CondProto | CondRemoteAddr | CondLocalAddr) &&
                         rule->remoteAddrs.size() == 1 && rule->remoteAddrs[0].addr == loopback &&
                         rule->localAddrs.size() == 1 && rule->localAddrs[0].addr == loopback;
-                }), "iTunes generation omitted a restricted loopback rule");
+                }), "Apple audio generation omitted a restricted loopback rule");
             }
+            if (EqualNoCase(program.name, L"AppleMusic.exe")) continue;
             CheckAuto(std::any_of(rules.begin(), rules.end(), [](const Rule* rule) {
                 return rule->proto == Proto::Udp && rule->dir == Dir::Unknown &&
                     rule->conds == (CondProto | CondRemotePort | CondLocalPort) &&
                     rule->remotePorts.size() == 1 && rule->remotePorts[0].from == 5353 &&
                     rule->remotePorts[0].to == 5353 && rule->localPorts.size() == 1 &&
                     rule->localPorts[0].from == 5353 && rule->localPorts[0].to == 5353;
-            }), "iTunes generation omitted the mDNS rule");
+            }), "Apple audio generation omitted the mDNS rule");
         }
     }
     RuleStore store;
@@ -1706,6 +1724,11 @@ int main(int argc, char** argv) {
                 std::pair{L"XboxPcApp.exe", "XboxPcApp.exe"},
                 std::pair{L"XboxPcAppFT.exe", "XboxPcAppFT.exe"},
                 std::pair{L"Telegram.exe", "Telegram.exe"},
+                std::pair{L"AppInstaller.exe", "AppInstaller.exe"},
+                std::pair{L"WhatsApp.Root.exe", "WhatsApp.Root.exe"},
+                std::pair{L"AMPLibraryAgent.exe", "AMPLibraryAgent.exe"},
+                std::pair{L"AppleMusic.exe", "AppleMusic.exe"},
+                std::pair{L"PhoneExperienceHost.exe", "PhoneExperienceHost.exe"},
                 std::pair{L"Time.exe", "Time.exe"},
                 std::pair{L"PAD.Console.Host.exe", "PAD.Console.Host.exe"},
                 std::pair{L"msedgewebview2.exe", "msedgewebview2.exe"}}) {
