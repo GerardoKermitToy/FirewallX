@@ -600,6 +600,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_MICROSOFT_ACCOUNT, L"svchost.exe", httpsOrHttp, Host::Service, L"wlidsvc"},
     {IDS_PRESET_WAAS_MEDIC, L"svchost.exe", httpsOnly, Host::Service, L"WaaSMedicSvc"},
     {IDS_PRESET_WISVC, L"svchost.exe", httpsOrHttp, Host::Service, L"wisvc"},
+    {IDS_PRESET_XBL_AUTH_MANAGER, L"svchost.exe", httpsOrHttp, Host::Service, L"XblAuthManager"},
     {IDS_PRESET_DIAGTRACK_BLOCK, L"svchost.exe", httpsBlock, Host::Service, L"DiagTrack"},
     {IDS_PRESET_SHARED_ACCESS_DNS, L"svchost.exe", sharedAccessDns, Host::Service, L"SharedAccess"},
     {IDS_PRESET_SHARED_ACCESS_DHCP, L"svchost.exe", sharedAccessDhcp, Host::Service, L"SharedAccess"},

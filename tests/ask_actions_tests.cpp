@@ -178,7 +178,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_STUN_UDP_3478; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_XBL_AUTH_MANAGER; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -3522,6 +3522,7 @@ void TestCapturedConnectionPresets() {
         {L"C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\SoftLandingTask\\SoftLandingTask.exe",
             IDS_PRESET_SOFT_LANDING_TASK, nullptr, 1, true, RuleAction::Allow},
         {svchost, IDS_PRESET_WISVC, L"wisvc", 1, true, RuleAction::Allow},
+        {svchost, IDS_PRESET_XBL_AUTH_MANAGER, L"XblAuthManager", 1, true, RuleAction::Allow},
         {L"C:\\Program Files\\WindowsApps\\A025C540.Yandex.Music_4.54.8517.0_x64__vfvw9svesycw6\\Y.Music.exe",
             IDS_PRESET_YANDEX_MUSIC, nullptr, 1, true, RuleAction::Allow},
         {LR"(C:\Program Files\WindowsApps\Microsoft.WindowsAlarms_11.2607.6.0_x64__8wekyb3d8bbwe\Time.exe)",
@@ -3893,9 +3894,12 @@ void TestCapturedConnectionPresets() {
                 profile.titleId == IDS_PRESET_WWA_HOST || profile.titleId == IDS_PRESET_SEARCH_HOST ||
                 profile.titleId == IDS_PRESET_SOFT_LANDING_TASK || profile.titleId == IDS_PRESET_WISVC ||
                 profile.titleId == IDS_PRESET_YANDEX_MUSIC || profile.titleId == IDS_PRESET_WINDOWS_CLOCK ||
-                profile.titleId == IDS_PRESET_POWER_AUTOMATE || profile.titleId == IDS_PRESET_XBOX_PC_APP_FT)
+                profile.titleId == IDS_PRESET_POWER_AUTOMATE || profile.titleId == IDS_PRESET_XBOX_PC_APP_FT ||
+                profile.titleId == IDS_PRESET_XBL_AUTH_MANAGER)
                 Check(title.find(L"HTTPS / HTTP") != std::wstring::npos,
                       "extended captured preset title omitted HTTP or HTTPS");
+            if (profile.titleId == IDS_PRESET_XBL_AUTH_MANAGER)
+                Check(title == L"XblAuthManager: HTTPS / HTTP", "Xbox authentication preset title was decoded incorrectly");
             if (profile.titleId == IDS_PRESET_WWA_HOST)
                 Check(title == L"WWAHost.exe: HTTPS / HTTP", "WWAHost preset title was decoded incorrectly");
             if (profile.titleId == IDS_PRESET_STEAM_SERVICE)

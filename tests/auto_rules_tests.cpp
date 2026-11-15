@@ -991,6 +991,23 @@ void GeneratedRules(const std::wstring& signedPath, const std::wstring& unsigned
               serviceRules[0].remotePorts.size() == 2 && serviceRules[0].remotePorts[0].from == 443 &&
               serviceRules[0].remotePorts[1].from == 80,
               "generation omitted the service-scoped wisvc HTTP/HTTPS rule");
+    ServiceEntry xboxAuth;
+    xboxAuth.name = L"XblAuthManager";
+    CheckAuto(RulePresets::MayUseService({}, xboxAuth.name) &&
+              RulePresets::MayUseService(L"svchost.exe", xboxAuth.name) &&
+              !RulePresets::MayUseService(L"other.exe", xboxAuth.name),
+              "generation discovery missed or widened the Xbox authentication service");
+    serviceRules = RulePresets::Generate(svchost, {xboxAuth});
+    CheckAuto(serviceRules.size() == 1 && serviceRules[0].scope == RuleScope::App &&
+              serviceRules[0].appPath == svchost && serviceRules[0].action == RuleAction::Allow &&
+              serviceRules[0].proto == Proto::Tcp && serviceRules[0].dir == Dir::Out &&
+              serviceRules[0].conds == (CondProto | CondDirection | CondService | CondRemotePort) &&
+              serviceRules[0].services.size() == 1 && serviceRules[0].services[0].name == xboxAuth.name &&
+              serviceRules[0].remotePorts.size() == 2 && serviceRules[0].remotePorts[0].from == 443 &&
+              serviceRules[0].remotePorts[0].to == 443 && serviceRules[0].remotePorts[1].from == 80 &&
+              serviceRules[0].remotePorts[1].to == 80 && serviceRules[0].localPorts.empty() &&
+              serviceRules[0].remoteAddrs.empty() && serviceRules[0].localAddrs.empty(),
+              "generation omitted or widened the service-scoped XblAuthManager HTTP/HTTPS rule");
     ServiceEntry userPush;
     userPush.name = L"WpnUserService_test";
     userPush.display = L"Push notifications for test user";
@@ -1015,7 +1032,7 @@ void GeneratedRules(const std::wstring& signedPath, const std::wstring& unsigned
     CheckAuto(RulePresets::ApplyGenerated(pushStore, serviceRules) == 1 &&
               RulePresets::ApplyGenerated(pushStore, RulePresets::Generate(svchost, {otherUserPush})) == 0 &&
               pushStore.Count() == 1, "user instance change duplicated the generated wildcard rule");
-    CheckAuto(RulePresets::Generate(L"C:\\Temp\\svchost.exe", {dns, userPush}).empty(),
+    CheckAuto(RulePresets::Generate(L"C:\\Temp\\svchost.exe", {dns, userPush, xboxAuth}).empty(),
               "generation accepted a non-system host for a system service");
 
     std::atomic_bool cancel{false};

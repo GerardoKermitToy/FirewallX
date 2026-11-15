@@ -235,6 +235,7 @@
 #define IDS_PRESET_WEBVIEW2_STUN             2326
 #define IDS_PRESET_POWER_AUTOMATE            2327
 #define IDS_PRESET_RULE_STUN_UDP_3478        2328
+#define IDS_PRESET_XBL_AUTH_MANAGER          2329
 
 /* Группы интерфейсов; все переводы также в RulePresets.rc. */
 #define IDS_INTERFACE_UNKNOWN             2110
