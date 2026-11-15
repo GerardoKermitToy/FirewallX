@@ -62,6 +62,7 @@ inline constexpr PortItem pMdns[] = { {5353, 5353} };
 inline constexpr PortItem pLlmnr[] = { {5355, 5355} };
 inline constexpr PortItem pRustDesk21116[] = { {21116, 21116} };
 inline constexpr PortItem pStun3478[] = { {3478, 3478} };
+inline constexpr PortItem pXmpp[] = { {5222, 5222} };
 inline constexpr PortItem pWebMail[] = { {443, 443}, {465, 465}, {587, 587}, {993, 993}, {995, 995} };
 inline constexpr PortItem pWebTelegram[] = { {443, 443}, {80, 80}, {5222, 5222} };
 inline constexpr PortItem pWebApple[] = { {443, 443}, {80, 80}, {5223, 5223} };
@@ -298,6 +299,9 @@ inline constexpr NetworkRule webview2[] = {
 };
 inline constexpr NetworkRule webview2Stun[] = {
     {IDS_PRESET_RULE_STUN_UDP_3478, Proto::Udp, Dir::Out, pStun3478}
+};
+inline constexpr NetworkRule webview2Xmpp[] = {
+    {IDS_PRESET_RULE_XMPP_TCP_5222, Proto::Tcp, Dir::Out, pXmpp}
 };
 inline constexpr NetworkRule webview2Mdns[] = {
     {IDS_PRESET_RULE_MDNS, Proto::Udp, Dir::Unknown, pMdns, pMdns}
@@ -586,6 +590,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_TEAMS_UPDATE, L"ms-teamsupdate.exe", httpsOnly},
     {IDS_PRESET_WEBVIEW2, L"msedgewebview2.exe", webview2},
     {IDS_PRESET_WEBVIEW2_STUN, L"msedgewebview2.exe", webview2Stun},
+    {IDS_PRESET_WEBVIEW2_XMPP, L"msedgewebview2.exe", webview2Xmpp},
     {IDS_PRESET_WEBVIEW2_MDNS, L"msedgewebview2.exe", webview2Mdns},
     {IDS_PRESET_OFFICE_CLIENT, L"OfficeC2RClient.exe", httpsOnly},
     {IDS_PRESET_OFFICE_SERVICE, L"OfficeClickToRun.exe", httpsOrHttp,

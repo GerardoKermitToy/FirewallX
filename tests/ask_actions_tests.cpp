@@ -178,7 +178,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_WEB_APPLE_TCP; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_XMPP_TCP_5222; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -3574,36 +3574,37 @@ void TestRemoteAccessPresets() {
     SetUiLang(previous);
 }
 
-void TestWebview2StunPreset() {
+void TestWebview2SinglePortPreset(UINT titleId, UINT nameId, Proto proto, uint16_t port,
+                                const wchar_t* expectedTitle) {
     const UiLang previous = CurrentUiLang();
     SetUiLang(UiLang::English);
     const std::wstring path = L"C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\157.0.4341.60\\msedgewebview2.exe";
-    AskRequest request = Request(path, Proto::Udp, 3478, L"91.235.132.129");
+    AskRequest request = Request(path, proto, port, L"31.13.72.52");
     request.key.local = Ip(L"192.168.219.24");
-    request.key.lport = 65082;
+    request.key.lport = 57187;
     request.conditionFlags = 1;
-    request.interfaceName = std::make_shared<const std::wstring>(L"Ethernet");
+    request.interfaceName = std::make_shared<const std::wstring>(L"Ethernet 2");
     SetServices(request.pid, {});
-    const auto offered = [](const AskRequest& flow) {
+    const auto offered = [titleId](const AskRequest& flow) {
         const auto choices = RulePresets::Suggest(flow);
-        return std::any_of(choices.begin(), choices.end(), [](const auto& choice) {
-            return choice.titleId == IDS_PRESET_WEBVIEW2_STUN;
+        return std::any_of(choices.begin(), choices.end(), [titleId](const auto& choice) {
+            return choice.titleId == titleId;
         });
     };
     const auto choices = RulePresets::Suggest(request);
-    const auto& preset = ChoiceOf(choices, IDS_PRESET_WEBVIEW2_STUN);
-    Check(preset.title == L"msedgewebview2.exe: STUN (UDP 3478)" && preset.rules.size() == 1,
-          "WebView2 STUN preset lost its title or single rule");
+    const auto& preset = ChoiceOf(choices, titleId);
+    Check(choices.size() == 1 && preset.title == expectedTitle && preset.rules.size() == 1,
+          "WebView2 single-port preset lost its title or single rule");
     const Rule& rule = preset.rules.front();
     Check(rule.scope == RuleScope::App && rule.appPath == path && rule.action == RuleAction::Allow &&
-          rule.proto == Proto::Udp && rule.dir == Dir::Out &&
+          rule.proto == proto && rule.dir == Dir::Out &&
           rule.conds == (CondProto | CondDirection | CondRemotePort) &&
-          rule.remotePorts.size() == 1 && rule.remotePorts[0].from == 3478 &&
-          rule.remotePorts[0].to == 3478 && rule.localPorts.empty() &&
+          rule.remotePorts.size() == 1 && rule.remotePorts[0].from == port &&
+          rule.remotePorts[0].to == port && rule.localPorts.empty() &&
           rule.remoteAddrs.empty() && rule.localAddrs.empty() && rule.services.empty() &&
           rule.interfaceName.empty() && rule.conditionFlags == 0 &&
           RuleStore::MatchesRule(rule, request.ToQuery()),
-          "WebView2 STUN rule widened its port or pinned captured conditions");
+          "WebView2 single-port rule widened its port or pinned captured conditions");
     for (const auto& [local, remote] : {
             std::pair{L"192.0.2.10", L"198.51.100.20"},
             std::pair{L"2001:db8::10", L"2001:db8::20"}}) {
@@ -3615,59 +3616,67 @@ void TestWebview2StunPreset() {
         flow.conditionFlags.reset();
         flow.process.reset();
         Check(offered(flow) && RuleStore::MatchesRule(rule, flow.ToQuery()),
-              "WebView2 STUN depended on endpoints, interface, flags or process handle");
+              "WebView2 single-port depended on endpoints, interface, flags or process handle");
     }
-    for (uint16_t port : {uint16_t{3477}, uint16_t{3479}, uint16_t{3481}, uint16_t{5353}}) {
+    for (uint16_t otherPort : {uint16_t{3477}, uint16_t{3479}, uint16_t{3481}, uint16_t{5353},
+                               uint16_t{5221}, uint16_t{5223}, uint16_t{443}, uint16_t{80}}) {
         AskRequest flow = request;
-        flow.key.rport = port;
+        flow.key.rport = otherPort;
         Check(!offered(flow) && !RuleStore::MatchesRule(rule, flow.ToQuery()),
-              "WebView2 STUN accepted another remote port");
+              "WebView2 single-port accepted another remote port");
     }
     AskRequest changed = request;
-    changed.key.proto = Proto::Tcp;
+    changed.dir = Dir::In;
+    Check(offered(changed) && RuleStore::MatchesRule(rule, changed.ToQuery()),
+          "WebView2 single-port preset changed existing allow direction semantics");
+    changed = request;
+    changed.key.proto = proto == Proto::Udp ? Proto::Tcp : Proto::Udp;
     Check(!offered(changed) && !RuleStore::MatchesRule(rule, changed.ToQuery()),
-          "WebView2 STUN accepted TCP");
+          "WebView2 single-port preset accepted another protocol");
     changed = request;
     changed.appPath = L"C:\\Apps\\not-a-preset.exe";
     Check(!offered(changed) && !RuleStore::MatchesRule(rule, changed.ToQuery()),
-          "WebView2 STUN matched another executable");
+          "WebView2 single-port matched another executable");
     changed.appPath = L"C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\158.0.0.0\\msedgewebview2.exe";
     Check(offered(changed) && !RuleStore::MatchesRule(rule, changed.ToQuery()),
-          "WebView2 STUN lost version independence or exact application scope");
+          "WebView2 single-port lost version independence or exact application scope");
     changed = request;
     changed.ownerAmbiguous = true;
-    Check(!offered(changed), "ambiguous owner received a WebView2 STUN preset");
+    Check(!offered(changed), "ambiguous owner received a WebView2 single-port preset");
     RuleStore store;
     Check(RulePresets::Apply(store, request, preset.rules) == 1,
-          "cannot apply WebView2 STUN preset");
+          "cannot apply WebView2 single-port preset");
     changed = request;
     changed.key.proto = Proto::Tcp;
     changed.key.rport = 443;
     const auto webChoices = RulePresets::Suggest(changed);
     const auto& web = ChoiceOf(webChoices, IDS_PRESET_WEBVIEW2);
     Check(web.rules.size() == 3 && RulePresets::Apply(store, changed, web.rules) == 3 && store.Count() == 4,
-          "WebView2 STUN changed its existing web preset");
+          "WebView2 single-port changed its existing web preset");
     const uint64_t version = store.version();
     size_t languageCount = 0;
     const UiLangInfo* languages = UiLangs(languageCount);
     for (size_t i = 0; i < languageCount; ++i) {
         SetUiLang(languages[i].lang);
         const auto localized = RulePresets::Suggest(request);
-        const auto& translated = ChoiceOf(localized, IDS_PRESET_WEBVIEW2_STUN);
-        const std::wstring title = LoadStringRes(IDS_PRESET_WEBVIEW2_STUN);
-        const std::wstring name = LoadStringRes(IDS_PRESET_RULE_STUN_UDP_3478);
+        const auto& translated = ChoiceOf(localized, titleId);
+        const std::wstring title = LoadStringRes(titleId);
+        const std::wstring name = LoadStringRes(nameId);
         Check(!title.empty() && !name.empty() && translated.title == title && translated.rules.size() == 1 &&
               translated.rules[0].name == LoadStringResFmt(IDS_PRESET_RULE_NAME_FMT,
                   title.c_str(), name.c_str()) && RulePresets::Apply(store, request, translated.rules) == 0 &&
               store.Count() == 4 && store.version() == version,
-              "localized WebView2 STUN preset was lost or duplicated");
+              "localized WebView2 single-port preset was lost or duplicated");
     }
     SetUiLang(previous);
 }
 
 void TestCapturedConnectionPresets() {
     TestNewStorePresets();
-    TestWebview2StunPreset();
+    TestWebview2SinglePortPreset(IDS_PRESET_WEBVIEW2_STUN, IDS_PRESET_RULE_STUN_UDP_3478,
+                                Proto::Udp, 3478, L"msedgewebview2.exe: STUN (UDP 3478)");
+    TestWebview2SinglePortPreset(IDS_PRESET_WEBVIEW2_XMPP, IDS_PRESET_RULE_XMPP_TCP_5222,
+                                Proto::Tcp, 5222, L"msedgewebview2.exe: XMPP (TCP 5222)");
     struct Profile {
         std::wstring path;
         UINT titleId;

@@ -1401,13 +1401,13 @@ void GeneratedNewPrograms(const std::wstring& systemExe, const wchar_t* unsigned
         {L"git-remote-https.exe", 4}, {L"steamservice.exe", 1}, {L"SearchHost.exe", 1},
         {L"SoftLandingTask.exe", 1}, {L"Y.Music.exe", 1},
         {L"XboxPcApp.exe", 1}, {L"XboxPcAppFT.exe", 1}, {L"Telegram.exe", 3},
-        {L"Time.exe", 1}, {L"PAD.Console.Host.exe", 1}, {L"msedgewebview2.exe", 5},
+        {L"Time.exe", 1}, {L"PAD.Console.Host.exe", 1}, {L"msedgewebview2.exe", 6},
         {L"AppInstaller.exe", 1}, {L"WhatsApp.Root.exe", 1},
         {L"AMPLibraryAgent.exe", 4}, {L"AppleMusic.exe", 2}
     };
     const std::wstring webviewPath = LR"(C:\Program Files (x86)\Microsoft\EdgeWebView\Application\157.0.4341.60\msedgewebview2.exe)";
     const auto webviewRules = RulePresets::Generate(webviewPath, {});
-    CheckAuto(webviewRules.size() == 5 &&
+    CheckAuto(webviewRules.size() == 6 &&
               std::all_of(webviewRules.begin(), webviewRules.end(), [&](const Rule& rule) {
                   return rule.scope == RuleScope::App && rule.appPath == webviewPath;
               }), "WebView2 versioned path lost its complete application-scoped presets");
@@ -1465,6 +1465,13 @@ void GeneratedNewPrograms(const std::wstring& systemExe, const wchar_t* unsigned
                     rule->remotePorts[0].to == 3478 && rule->localPorts.empty() &&
                     rule->remoteAddrs.empty() && rule->localAddrs.empty();
             }) == 1, "WebView2 generation omitted or widened the STUN rule");
+            CheckAuto(std::count_if(rules.begin(), rules.end(), [](const Rule* rule) {
+                return rule->proto == Proto::Tcp && rule->dir == Dir::Out &&
+                    rule->conds == (CondProto | CondDirection | CondRemotePort) &&
+                    rule->remotePorts.size() == 1 && rule->remotePorts[0].from == 5222 &&
+                    rule->remotePorts[0].to == 5222 && rule->localPorts.empty() &&
+                    rule->remoteAddrs.empty() && rule->localAddrs.empty();
+            }) == 1, "WebView2 generation omitted or widened the XMPP rule");
             continue;
         }
         if (EqualNoCase(program.name, L"Telegram.exe") || EqualNoCase(program.name, L"WhatsApp.Root.exe")) {

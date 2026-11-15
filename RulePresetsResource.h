@@ -242,6 +242,8 @@
 #define IDS_PRESET_APPLE_MUSIC               2333
 #define IDS_PRESET_RULE_WEB_WHATSAPP_TCP     2334
 #define IDS_PRESET_RULE_WEB_APPLE_TCP        2335
+#define IDS_PRESET_WEBVIEW2_XMPP             2336
+#define IDS_PRESET_RULE_XMPP_TCP_5222        2337
 
 /* Группы интерфейсов; все переводы также в RulePresets.rc. */
 #define IDS_INTERFACE_UNKNOWN             2110
