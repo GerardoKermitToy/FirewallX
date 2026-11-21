@@ -587,6 +587,7 @@ inline constexpr Preset presets[] = {
     {IDS_PRESET_EDGE_UPDATE, L"MicrosoftEdgeUpdate.exe", httpsOnly},
     {IDS_PRESET_DEFENDER_CORE, L"MpDefenderCoreService.exe", httpsOrHttp,
         Host::AppService, L"MDCoreSvc"},
+    {IDS_PRESET_DEFENDER_NIS, L"NisSrv.exe", httpsOrHttp, Host::AppService, L"WdNisSvc"},
     {IDS_PRESET_TEAMS_UPDATE, L"ms-teamsupdate.exe", httpsOnly},
     {IDS_PRESET_WEBVIEW2, L"msedgewebview2.exe", webview2},
     {IDS_PRESET_WEBVIEW2_STUN, L"msedgewebview2.exe", webview2Stun},

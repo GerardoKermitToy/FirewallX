@@ -244,6 +244,7 @@
 #define IDS_PRESET_RULE_WEB_APPLE_TCP        2335
 #define IDS_PRESET_WEBVIEW2_XMPP             2336
 #define IDS_PRESET_RULE_XMPP_TCP_5222        2337
+#define IDS_PRESET_DEFENDER_NIS              2338
 
 /* Группы интерфейсов; все переводы также в RulePresets.rc. */
 #define IDS_INTERFACE_UNKNOWN             2110

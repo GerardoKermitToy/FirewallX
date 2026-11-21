@@ -191,7 +191,7 @@ void TestNewResources() {
                         IDS_PRESET_SYSTEM_SMB_LOOPBACK, IDS_PRESET_SYSTEM_UDP_LOOPBACK,
                         IDS_PRESET_RULE_LOOPBACK_HTTPS_UDP})
             Check(HasString(id, languages[i].winLangId), "missing additional preset translation");
-        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_RULE_XMPP_TCP_5222; ++id)
+        for (UINT id = IDS_PRESET_CLIPCHAMP; id <= IDS_PRESET_DEFENDER_NIS; ++id)
             Check(HasString(id, languages[i].winLangId), "missing captured-connection preset translation");
         for (UINT id = IDS_PRESET_RULE_NAME_FMT; id <= IDS_PRESET_RULE_WINRM_LOOPBACK; ++id)
             Check(HasString(id, languages[i].winLangId), "missing preset rule translation");
@@ -3776,6 +3776,8 @@ void TestCapturedConnectionPresets() {
         {L"C:\\Apps\\ipfsvc.exe", IDS_PRESET_INTEL_IPF, L"ipfui", 1, false, RuleAction::Allow},
         {L"C:\\Apps\\MicrosoftEdgeUpdate.exe", IDS_PRESET_EDGE_UPDATE, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Apps\\MpDefenderCoreService.exe", IDS_PRESET_DEFENDER_CORE, L"MDCoreSvc", 1, true, RuleAction::Allow},
+        {LR"(C:\Program Files\Windows Defender\NisSrv.exe)",
+            IDS_PRESET_DEFENDER_NIS, L"WdNisSvc", 1, true, RuleAction::Allow},
         {L"C:\\Apps\\ms-teamsupdate.exe", IDS_PRESET_TEAMS_UPDATE, nullptr, 1, false, RuleAction::Allow},
         {L"C:\\Apps\\msedgewebview2.exe", IDS_PRESET_WEBVIEW2, nullptr, 3, false, RuleAction::Allow},
         {L"C:\\Apps\\OfficeC2RClient.exe", IDS_PRESET_OFFICE_CLIENT, nullptr, 1, false, RuleAction::Allow},
@@ -4076,7 +4078,7 @@ void TestCapturedConnectionPresets() {
                 profile.titleId == IDS_PRESET_SOFT_LANDING_TASK || profile.titleId == IDS_PRESET_WISVC ||
                 profile.titleId == IDS_PRESET_YANDEX_MUSIC || profile.titleId == IDS_PRESET_WINDOWS_CLOCK ||
                 profile.titleId == IDS_PRESET_POWER_AUTOMATE || profile.titleId == IDS_PRESET_XBOX_PC_APP_FT ||
-                profile.titleId == IDS_PRESET_XBL_AUTH_MANAGER)
+                profile.titleId == IDS_PRESET_XBL_AUTH_MANAGER || profile.titleId == IDS_PRESET_DEFENDER_NIS)
                 Check(title.find(L"HTTPS / HTTP") != std::wstring::npos,
                       "extended captured preset title omitted HTTP or HTTPS");
             if (profile.titleId == IDS_PRESET_XBL_AUTH_MANAGER)

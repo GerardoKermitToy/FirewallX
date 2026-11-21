@@ -1193,6 +1193,63 @@ void GeneratedExecutableSelection(const std::wstring& systemExe) {
         }), "Visual Studio generation omitted a template port");
 }
 
+void GeneratedDefenderNis(const std::wstring& systemExe, const wchar_t* unsignedExe) {
+    ServiceEntry entry;
+    entry.name = L"WdNisSvc";
+    ServiceEntry other;
+    other.name = L"AnotherService";
+    CheckAuto(RulePresets::MayUseService({}, entry.name) &&
+              RulePresets::MayUseService(L"NisSrv.exe", entry.name) &&
+              RulePresets::MayUseService(L"nissrv.EXE", L"wdnissvc") &&
+              !RulePresets::MayUseService(L"other.exe", entry.name) &&
+              !RulePresets::MayUseService(L"NisSrv.exe", other.name),
+              "Defender NIS discovery missed or widened its executable/service pair");
+    TempDirectory signedDir, unsignedDir;
+    const std::wstring signedPath = signedDir.File(L"NisSrv.exe");
+    const std::wstring unsignedPath = unsignedDir.File(L"NisSrv.exe");
+    CheckAuto(CopyFileW(systemExe.c_str(), signedPath.c_str(), FALSE) &&
+              CopyFileW(unsignedExe, unsignedPath.c_str(), FALSE),
+              "cannot copy Defender NIS test executables");
+    CheckAuto(RulePresets::Generate(signedPath, {}).empty() &&
+              RulePresets::Generate(signedPath, {other}).empty(),
+              "Defender NIS generation created a rule without its verified service");
+    auto rules = RulePresets::Generate(signedPath, {entry, entry});
+    CheckAuto(rules.size() == 1, "Defender NIS generation omitted or duplicated its rule");
+    const Rule& rule = rules.front();
+    CheckAuto(rule.scope == RuleScope::App && rule.appPath == signedPath &&
+              rule.action == RuleAction::Allow && rule.proto == Proto::Tcp && rule.dir == Dir::Out &&
+              rule.conds == (CondProto | CondDirection | CondService | CondRemotePort) &&
+              rule.services.size() == 1 && rule.services[0].name == entry.name &&
+              rule.remotePorts.size() == 2 && rule.remotePorts[0].from == 443 &&
+              rule.remotePorts[0].to == 443 && rule.remotePorts[1].from == 80 &&
+              rule.remotePorts[1].to == 80 && rule.localPorts.empty() &&
+              rule.remoteAddrs.empty() && rule.localAddrs.empty() &&
+              rule.interfaceName.empty() && rule.conditionFlags == 0,
+              "Defender NIS generation widened its ports, scope or service restrictions");
+    RuleStore store;
+    CheckAuto(RulePresets::ApplyGenerated(store, rules) == 1 &&
+              RulePresets::ApplyGenerated(store, rules) == 0 && store.Count() == 1,
+              "repeat Defender NIS generation duplicated its rule");
+    const std::vector<RuleGenerator::ServiceCandidate> services = {
+        {entry, signedPath, {}}, {entry, unsignedPath, {}}
+    };
+    std::atomic_bool cancel{false};
+    auto result = RuleGenerator::VerifyCandidates({signedPath, unsignedPath}, services, cancel, {});
+    CheckAuto(!result.cancelled && result.files.size() == 1 && result.rules.size() == 3 &&
+              std::count_if(result.rules.begin(), result.rules.end(), [&](const Rule& generated) {
+                  return generated.scope == RuleScope::App && generated.appPath == signedPath &&
+                      generated.conds == rule.conds && generated.services.size() == 1 &&
+                      generated.services[0].name == entry.name;
+              }) == 1 && std::none_of(result.rules.begin(), result.rules.end(), [&](const Rule& generated) {
+                  return EqualNoCase(generated.appPath, unsignedPath);
+              }), "Defender NIS generation accepted an unsigned executable or lost its trusted rule");
+    result = RuleGenerator::VerifyCandidates({signedPath}, {}, cancel, {});
+    CheckAuto(!result.cancelled && result.rules.size() == 2 &&
+              std::all_of(result.rules.begin(), result.rules.end(), [](const Rule& generated) {
+                  return generated.scope == RuleScope::PostApp;
+              }), "Defender NIS candidate received a rule without verified service attribution");
+}
+
 void GeneratedDoSvc(const std::wstring& signedDll, const std::wstring& unsignedDll) {
     ServiceEntry entry;
     entry.name = L"DoSvc";
@@ -1737,6 +1794,7 @@ int main(int argc, char** argv) {
                 std::pair{L"AMPLibraryAgent.exe", "AMPLibraryAgent.exe"},
                 std::pair{L"AppleMusic.exe", "AppleMusic.exe"},
                 std::pair{L"PhoneExperienceHost.exe", "PhoneExperienceHost.exe"},
+                std::pair{L"NisSrv.exe", "NisSrv.exe"},
                 std::pair{L"Time.exe", "Time.exe"},
                 std::pair{L"PAD.Console.Host.exe", "PAD.Console.Host.exe"},
                 std::pair{L"msedgewebview2.exe", "msedgewebview2.exe"}}) {
@@ -1778,6 +1836,7 @@ int main(int argc, char** argv) {
     GeneratedOfficeAndFeedback(systemExe, self);
     GeneratedNewPrograms(systemExe, self);
     ServiceDllRegistry();
+    GeneratedDefenderNis(systemExe, self);
     GeneratedDoSvc(systemExe, unsignedGeneratedPath);
     GenerationDiscovery();
     GenerationDialog();
