@@ -25,6 +25,16 @@ bool IsElevatedForTest() {
 #undef IsElevated
 #undef SetTcpEntry
 
+// Для тестов ConnKill маршрутизация к драйверу не нужна.
+DWORD portmaster_abort_udp_flow(const IpAddr&, uint16_t,
+                                const IpAddr&, uint16_t) {
+    return ERROR_CALL_NOT_IMPLEMENTED;
+}
+
+bool portmaster_service_connected() {
+    return false;
+}
+
 namespace {
 
 void Check(bool value, const char* message) {
@@ -71,6 +81,41 @@ void TestConnectionError() {
           "successful SetTcpEntry must clear the previous error");
 }
 
+void TestUdpAvailability() {
+    ConnKill::Target target;
+    target.valid = true;
+    target.proto = Proto::Udp;
+    target.local.family = target.remote.family = AF_INET;
+    target.local.b[0] = 192;
+    target.local.b[1] = 0;
+    target.local.b[2] = 2;
+    target.local.b[3] = 10;
+    target.remote.b[0] = 198;
+    target.remote.b[1] = 51;
+    target.remote.b[2] = 100;
+    target.remote.b[3] = 20;
+    target.lport = 40000;
+    target.rport = 443;
+    Check(ConnKill::Check(target) == ConnKill::Denial::None,
+          "UDP IPv4 flow was rejected");
+
+    target.local.family = target.remote.family = AF_INET6;
+    target.local.b[0] = 0x20;
+    target.local.b[1] = 0x01;
+    target.local.b[2] = 0x0d;
+    target.local.b[3] = 0xb8;
+    target.remote.b[0] = 0x20;
+    target.remote.b[1] = 0x01;
+    target.remote.b[2] = 0x0d;
+    target.remote.b[3] = 0xb8;
+    Check(ConnKill::Check(target) == ConnKill::Denial::None,
+          "UDP IPv6 flow was rejected");
+
+    target.proto = Proto::Icmp;
+    Check(ConnKill::Check(target) == ConnKill::Denial::NoTcb,
+          "unsupported protocol was accepted for interruption");
+}
+
 void TestSystemDescription() {
     for (DWORD error : {DWORD(ERROR_ACCESS_DENIED), DWORD(ERROR_FILE_NOT_FOUND)}) {
         wchar_t buffer[2048]{};
@@ -102,6 +147,7 @@ int main() {
             TestMissingDescription();
             TestSystemDescription();
             TestConnectionError();
+            TestUdpAvailability();
         }
         std::cout << "Win32 error handling tests passed for " << count << " languages\n";
         return 0;

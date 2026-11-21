@@ -1,4 +1,5 @@
 #include "ConnKill.h"
+#include "Ingest.h"
 #include "StringRes.h"
 
 namespace {
@@ -40,13 +41,20 @@ namespace ConnKill {
 // состояния, семейство адресов важнее состояния, права проверяются последними:
 // они относятся к нам, а не к соединению.
 Denial Check(const Target& t) {
-    if (!t.valid)                        return Denial::NoConnection;
-    if (t.proto != Proto::Tcp)           return Denial::NoTcb;
-    if (t.local.family == AF_INET6)      return Denial::Ipv6NoApi;
-    if (t.state == MIB_TCP_STATE_LISTEN) return Denial::Listener;
-    if (!HasTcb(t.state))                return Denial::Gone;
-    if (!t.rport || t.remote.isAny())    return Denial::NoRemote;
-    if (!Elevated())                     return Denial::NoRights;
+    if (!t.valid) return Denial::NoConnection;
+    if (t.proto != Proto::Tcp && t.proto != Proto::Udp) return Denial::NoTcb;
+    if (t.local.family != AF_INET && t.local.family != AF_INET6) return Denial::NoTcb;
+
+    if (t.proto == Proto::Tcp) {
+        if (t.local.family == AF_INET6)      return Denial::Ipv6NoApi;
+        if (t.state == MIB_TCP_STATE_LISTEN) return Denial::Listener;
+        if (!HasTcb(t.state))                return Denial::Gone;
+    }
+
+    if (!t.lport || !t.rport || t.remote.isAny()) return Denial::NoRemote;
+    if (!Elevated() &&
+        !(t.proto == Proto::Udp && portmaster_service_connected()))
+        return Denial::NoRights;
     return Denial::None;
 }
 
@@ -84,9 +92,36 @@ bool Kill(const Target& t, std::wstring& error) {
     error.clear();
 
     // Повторно проверяем переданный снимок цели, не перечитывая состояние ОС.
-    // Если соединение уже изменилось или исчезло, это обнаружит SetTcpEntry ниже.
+    // Для UDP драйвер также принимает только полный endpoint tuple.
     const Denial d = Check(t);
     if (d != Denial::None) { error = DenialText(d); return false; }
+
+    const auto explainError = [&](DWORD rc) {
+        switch (rc) {
+        // SetTcpEntry и управляющая команда драйвера используют этот код для
+        // вызова без повышения прав.
+        case ERROR_MR_MID_NOT_FOUND:
+        case ERROR_ACCESS_DENIED:
+            error = LoadStringRes(IDS_KILL_ERROR_ACCESS);
+            break;
+        case ERROR_INVALID_PARAMETER:
+        case ERROR_NOT_FOUND:
+            // Обычный исход гонки: поток закрылся между меню и командой.
+            error = LoadStringRes(IDS_KILL_ERROR_NOT_FOUND);
+            break;
+        default:
+            error = FormatWinError(rc);
+            break;
+        }
+    };
+
+    if (t.proto == Proto::Udp) {
+        const DWORD rc = portmaster_abort_udp_flow(
+            t.local, t.lport, t.remote, t.rport);
+        if (rc == ERROR_SUCCESS) return true;
+        explainError(rc);
+        return false;
+    }
 
     MIB_TCPROW row{};
     row.dwState = MIB_TCP_STATE_DELETE_TCB;      // единственное допустимое значение
@@ -101,23 +136,7 @@ bool Kill(const Target& t, std::wstring& error) {
 
     const DWORD rc = SetTcpEntry(&row);
     if (rc == NO_ERROR) return true;
-
-    switch (rc) {
-    // SetTcpEntry документирует код 317 как вызов без повышения прав.
-    case ERROR_MR_MID_NOT_FOUND:
-    case ERROR_ACCESS_DENIED:
-        error = LoadStringRes(IDS_KILL_ERROR_ACCESS);
-        break;
-    case ERROR_INVALID_PARAMETER:
-    case ERROR_NOT_FOUND:
-        // Обычный исход гонки: соединение закрылось само между построением
-        // меню и выполнением команды.
-        error = LoadStringRes(IDS_KILL_ERROR_NOT_FOUND);
-        break;
-    default:
-        error = FormatWinError(rc);
-        break;
-    }
+    explainError(rc);
     return false;
 }
 

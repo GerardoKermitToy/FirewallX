@@ -433,14 +433,6 @@ ProxySessionResult RunProxySession(pmkext::KextClient* driver,
         return ProxySessionResult::Disconnected;
     }
 
-    // Кеш мог остаться от локальной службы или прежней оконной политики.
-    // Барьер маршрута уже пройден: все новые запросы решает этот desktop.
-    error = portmaster_clear_cache();
-    if (error != ERROR_SUCCESS) {
-        client.Stop();
-        return ProxySessionResult::Disconnected;
-    }
-
     // В proxy-режиме IOCTL заменяется той же командой через WriteFile службы.
     // Каждый новый desktop получает полный снимок, а не только будущие события.
     const byte startProcesses = static_cast<byte>(pmkext::CommandType::StartProcessMonitoring);
@@ -535,14 +527,6 @@ void RunDesktopDriver(pmkext::KextClient* driver, bool& startupSignalled) {
     if (!verdictSession) {
         driver->close();
         SignalDriverStart(ERROR_INVALID_HANDLE, startupSignalled);
-        return;
-    }
-
-    const DWORD cacheStatus = portmaster_clear_cache();
-    if (cacheStatus != ERROR_SUCCESS) {
-        DeactivateDriverSession(verdictSession);
-        driver->close();
-        SignalDriverStart(cacheStatus, startupSignalled);
         return;
     }
 
@@ -773,20 +757,6 @@ void RunServiceDriver(pmkext::KextClient* driver, bool& startupSignalled) {
         CloseHandle(proxy.proxyReady);
         driver->close();
         SignalDriverStart(ERROR_INVALID_HANDLE, startupSignalled);
-        return;
-    }
-
-    // Драйвер может пережить оконный процесс: его прежняя AllowAll-политика
-    // не должна стать разрешением локальной службы после её запуска.
-    const DWORD cacheStatus = portmaster_clear_cache();
-    if (cacheStatus != ERROR_SUCCESS) {
-        DeactivateDriverSession(verdictSession);
-        server.Stop();
-        CloseHandle(proxy.localRequest);
-        CloseHandle(proxy.localReady);
-        CloseHandle(proxy.proxyReady);
-        driver->close();
-        SignalDriverStart(cacheStatus, startupSignalled);
         return;
     }
 
@@ -1027,6 +997,17 @@ DWORD SendDriverControlCommand(pmkext::CommandType type, bool optional) {
     return status;
 }
 
+template <class Payload>
+DWORD SendAbortUdpFlowThroughPipe(pmkext::CommandType type,
+                                  const Payload& payload,
+                                  duplex_pipe::Client* pipe) noexcept {
+    std::array<uint8_t, 1 + sizeof(Payload)> command{};
+    command[0] = static_cast<uint8_t>(type);
+    std::memcpy(command.data() + 1, &payload, sizeof(payload));
+    return pipe->SendRaw(reinterpret_cast<const byte*>(command.data()),
+                         static_cast<unsigned long>(command.size()));
+}
+
 } // namespace
 
 DWORD portmaster_clear_cache() {
@@ -1035,6 +1016,49 @@ DWORD portmaster_clear_cache() {
 #else
     return SendDriverControlCommand(pmkext::CommandType::ClearCache, true);
 #endif
+}
+
+DWORD portmaster_abort_udp_flow(const IpAddr& local, uint16_t localPort,
+                                const IpAddr& remote, uint16_t remotePort) {
+    if (local.family != remote.family ||
+        (local.family != AF_INET && local.family != AF_INET6) ||
+        local.isAny() || remote.isAny() || !localPort || !remotePort) {
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    const DriverControlLock lock;
+    if (!g_driver || !g_verdictSession.active()) return ERROR_NOT_READY;
+
+    if (g_verdictTransport == VerdictTransport::Direct && !g_servicePipe) {
+        const bool sent = local.family == AF_INET
+            ? g_driver->abortUdpFlowV4(local.b, localPort, remote.b, remotePort)
+            : g_driver->abortUdpFlowV6(local.b, localPort, remote.b, remotePort);
+        if (sent) return ERROR_SUCCESS;
+        const DWORD error = g_driver->lastError();
+        return error == ERROR_SUCCESS ? ERROR_WRITE_FAULT : error;
+    }
+
+    if (g_verdictTransport == VerdictTransport::Pipe && g_servicePipe) {
+        if (local.family == AF_INET) {
+            pmkext::CmdAbortUdpFlowV4 payload{};
+            std::memcpy(payload.local_address, local.b, sizeof(payload.local_address));
+            payload.local_port = localPort;
+            std::memcpy(payload.remote_address, remote.b, sizeof(payload.remote_address));
+            payload.remote_port = remotePort;
+            return SendAbortUdpFlowThroughPipe(
+                pmkext::CommandType::AbortUdpFlowV4, payload, g_servicePipe);
+        }
+
+        pmkext::CmdAbortUdpFlowV6 payload{};
+        std::memcpy(payload.local_address, local.b, sizeof(payload.local_address));
+        payload.local_port = localPort;
+        std::memcpy(payload.remote_address, remote.b, sizeof(payload.remote_address));
+        payload.remote_port = remotePort;
+        return SendAbortUdpFlowThroughPipe(
+            pmkext::CommandType::AbortUdpFlowV6, payload, g_servicePipe);
+    }
+
+    return ERROR_INVALID_HANDLE;
 }
 
 bool portmaster_request_bandwidth_stats() {
@@ -1918,13 +1942,20 @@ bool Ingest::ReloadServicePolicy() {
 #ifdef FIREWALLX_TEST_VERDICTS
     if (IngestWorkProbe::afterServicePolicyLoad) IngestWorkProbe::afterServicePolicyLoad();
 #endif
-    std::lock_guard<std::mutex> lock(mtx_);
-    if (!rules_ || mode_.load(std::memory_order_relaxed) != IngestMode::Service)
-        return false;
-    if (policy_.load(std::memory_order_relaxed) != policy) {
-        policy_.store(policy, std::memory_order_relaxed);
-        verdicts_ = decltype(verdicts_){};
-        verdictExpiry_.clear();
+    bool policyChanged = false;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (!rules_ || mode_.load(std::memory_order_relaxed) != IngestMode::Service)
+            return false;
+        policyChanged = policy_.exchange(policy, std::memory_order_relaxed) != policy;
+        if (policyChanged) {
+            verdicts_ = decltype(verdicts_){};
+            verdictExpiry_.clear();
+        }
+    }
+    if (policyChanged) {
+        if (source_ == TrafficSource::Host) portmaster_clear_cache();
+        else firewallxndisfilter_clear_cache();
     }
     return true;
 }
@@ -1958,6 +1989,7 @@ bool Ingest::ReloadServiceRules(const std::wstring& path) {
 
     bool refreshServices = false;
     bool loaded = false;
+    bool policyChanged = false;
     RuleStore* reloadedRules = nullptr;
     {
         std::lock_guard<std::mutex> lock(mtx_);
@@ -1967,7 +1999,7 @@ bool Ingest::ReloadServiceRules(const std::wstring& path) {
         reloadedRules = rules_;
         std::wstring error;
         loaded = rules_->LoadOnce(path, error);
-        policy_.store(policy, std::memory_order_relaxed);
+        policyChanged = policy_.exchange(policy, std::memory_order_relaxed) != policy;
 
         // В том числе после ошибки: LoadOnce уже заменил прежний набор пустым
         // снимком, поэтому кеши его решений также недействительны.
@@ -1988,13 +2020,17 @@ bool Ingest::ReloadServiceRules(const std::wstring& path) {
     if (source_ == TrafficSource::Host) {
         Ingest& ndis = ForSource(TrafficSource::Ndis);
         std::unique_lock ndisPolicyLock(ndis.policyMtx_);
-        std::lock_guard<std::mutex> lock(ndis.mtx_);
-        if (ndis.rules_ == reloadedRules &&
-            ndis.mode_.load(std::memory_order_relaxed) == IngestMode::Service) {
-            ndis.policy_.store(policy, std::memory_order_relaxed);
-            ndis.verdicts_ = decltype(ndis.verdicts_){};
-            ndis.verdictExpiry_.clear();
+        bool ndisPolicyChanged = false;
+        {
+            std::lock_guard<std::mutex> lock(ndis.mtx_);
+            if (ndis.rules_ == reloadedRules &&
+                ndis.mode_.load(std::memory_order_relaxed) == IngestMode::Service) {
+                ndisPolicyChanged = ndis.policy_.exchange(policy, std::memory_order_relaxed) != policy;
+                ndis.verdicts_ = decltype(ndis.verdicts_){};
+                ndis.verdictExpiry_.clear();
+            }
         }
+        if (ndisPolicyChanged) firewallxndisfilter_clear_cache();
     }
 
     // Снимок подготавливается до подтверждения переключения на службу. При
@@ -2003,11 +2039,11 @@ bool Ingest::ReloadServiceRules(const std::wstring& path) {
     // без такого снимка сервисное условие не совпадает.
     if (refreshServices) ServiceInfo::Version(true);
     if (source_ == TrafficSource::Host) ServiceInfo::SetMonitoring(refreshServices);
-    // После ухода desktop драйвер не должен сохранять решения прежнего снимка.
-    // В том числе после ошибки загрузки: действует перечитанная политика,
-    // а Learning без правила по-прежнему задаёт Drop.
-    if (source_ == TrafficSource::Host) portmaster_clear_cache();
-    else firewallxndisfilter_clear_cache();
+    // Перечитывание правил само по себе не сбрасывает драйверный кеш.
+    if (policyChanged) {
+        if (source_ == TrafficSource::Host) portmaster_clear_cache();
+        else firewallxndisfilter_clear_cache();
+    }
     return loaded;
 }
 
@@ -2052,8 +2088,6 @@ void Ingest::Attach(RuleStore* rules, HWND ui, IngestMode mode,
 
 DWORD Ingest::SetPolicy(FirewallPolicy policy) {
     if (!FirewallPolicies::IsValid(policy)) return ERROR_INVALID_PARAMETER;
-    if (source_ == TrafficSource::Host)
-        ForSource(TrafficSource::Ndis).SetPolicy(policy);
 
     std::unique_lock policyLock(policyMtx_);
     {
@@ -2067,9 +2101,13 @@ DWORD Ingest::SetPolicy(FirewallPolicy policy) {
         verdictExpiry_.clear();
     }
 
+    const DWORD status = source_ == TrafficSource::Host
+        ? portmaster_clear_cache() : firewallxndisfilter_clear_cache();
     policyLock.unlock();
+    const DWORD ndisStatus = source_ == TrafficSource::Host
+        ? ForSource(TrafficSource::Ndis).SetPolicy(policy) : ERROR_SUCCESS;
     Notify();
-    return ERROR_SUCCESS;
+    return status != ERROR_SUCCESS ? status : ndisStatus;
 }
 
 void Ingest::ProcessEventsChanged() {

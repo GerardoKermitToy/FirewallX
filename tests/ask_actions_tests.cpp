@@ -48,6 +48,8 @@ DriverVerdictSession* captureSession = nullptr;
 std::vector<std::pair<uint64_t, pmkext::Verdict>> sentVerdicts;
 size_t driverCacheClears = 0;
 DWORD driverCacheClearStatus = ERROR_SUCCESS;
+size_t ndisDriverCacheClears = 0;
+DWORD ndisDriverCacheClearStatus = ERROR_SUCCESS;
 
 void Check(bool value, const char* message) {
     if (!value) throw std::runtime_error(message);
@@ -7841,9 +7843,14 @@ DWORD test_clear_driver_cache() {
     return driverCacheClearStatus;
 }
 
+DWORD test_clear_ndis_driver_cache() {
+    ++ndisDriverCacheClears;
+    return ndisDriverCacheClearStatus;
+}
+
 namespace {
 
-void TestPolicyChangeKeepsDriverCache() {
+void TestPolicyChangeClearsDriverCache() {
     DriverVerdictSession session;
     captureSession = &session;
     sentVerdicts.clear();
@@ -7856,12 +7863,14 @@ void TestPolicyChangeKeepsDriverCache() {
     IngestTestAccess::CacheVerdict(*ingest);
     IngestTestAccess::AddQuicState(*ingest, request.key, GetTickCount64());
 
-    // Ошибка перехватчика гарантирует, что SetPolicy не маскирует вызов ClearCache.
-    driverCacheClears = 0;
+    // Ошибка очистки возвращается вызывающему коду, но новая политика сохраняется.
+    driverCacheClears = ndisDriverCacheClears = 0;
     driverCacheClearStatus = ERROR_GEN_FAILURE;
-    Check(ingest->SetPolicy(FirewallPolicy::AllowAll) == ERROR_SUCCESS &&
-          ingest->policy() == FirewallPolicy::AllowAll && driverCacheClears == 0,
-          "policy change cleared the driver cache");
+    ndisDriverCacheClearStatus = ERROR_SUCCESS;
+    Check(ingest->SetPolicy(FirewallPolicy::AllowAll) == ERROR_GEN_FAILURE &&
+          ingest->policy() == FirewallPolicy::AllowAll &&
+          driverCacheClears == 1 && ndisDriverCacheClears == 1,
+          "policy change did not clear both driver caches or lost the clear error");
     Check(IngestTestAccess::NoCachedVerdicts(*ingest),
           "policy change retained the user-mode verdict cache");
     Check(ingest->IsPending(pending) && ingest->waiting() == 1 &&
@@ -7870,13 +7879,25 @@ void TestPolicyChangeKeepsDriverCache() {
           "policy change altered pending obligations or QUIC state");
     Check(ingest->SetPolicy(FirewallPolicy::AllowAll) == ERROR_SUCCESS &&
           ingest->SetPolicy(static_cast<FirewallPolicy>(0xff)) == ERROR_INVALID_PARAMETER &&
-          ingest->policy() == FirewallPolicy::AllowAll && driverCacheClears == 0,
+          ingest->policy() == FirewallPolicy::AllowAll &&
+          driverCacheClears == 1 && ndisDriverCacheClears == 1,
           "unchanged or invalid policy touched the driver cache");
+
+    driverCacheClearStatus = ERROR_SUCCESS;
+    ndisDriverCacheClearStatus = ERROR_ACCESS_DENIED;
+    Check(ingest->SetPolicy(FirewallPolicy::BlockAll) == ERROR_ACCESS_DENIED &&
+          driverCacheClears == 2 && ndisDriverCacheClears == 2,
+          "policy change lost the Ndis cache clear error");
+    ndisDriverCacheClearStatus = ERROR_SUCCESS;
+    Check(Ingest::ForSource(TrafficSource::Ndis).SetPolicy(FirewallPolicy::Allow) == ERROR_SUCCESS &&
+          ingest->policy() == FirewallPolicy::BlockAll &&
+          driverCacheClears == 2 && ndisDriverCacheClears == 3,
+          "Ndis policy change cleared the wrong driver cache");
     ingest->Attach(&rules, nullptr, IngestMode::Service);
     Check(ingest->SetPolicy(FirewallPolicy::BlockAll) == ERROR_NOT_SUPPORTED &&
-          driverCacheClears == 0, "service policy change touched the driver cache");
+          driverCacheClears == 2 && ndisDriverCacheClears == 3,
+          "attach or unsupported service policy change touched the driver cache");
     ingest->EndDriverSession(session.End());
-    driverCacheClearStatus = ERROR_SUCCESS;
     captureSession = nullptr;
 }
 
@@ -8176,14 +8197,24 @@ void TestServicePolicyReload() {
         rule.conds = CondNone;
         rule.action = RuleAction::Allow;
         rules.Add(rule);
+        const size_t hostClears = driverCacheClears;
+        const size_t ndisClears = ndisDriverCacheClears;
         ingest->Attach(&rules, nullptr, IngestMode::Service, FirewallPolicy::Learning);
+        Check(driverCacheClears == hostClears && ndisDriverCacheClears == ndisClears,
+              "service attach cleared driver caches");
         expectVerdict(pmkext::Verdict::PermanentAccept);
         Check(ingest->ReloadServiceRules(L":memory:"), "cannot reload service rules and policy");
+        const size_t expectedClears = policy != FirewallPolicy::Learning ? 1 : 0;
+        Check(driverCacheClears == hostClears + expectedClears &&
+                  ndisDriverCacheClears == ndisClears + expectedClears,
+              "service rules reload did not restrict cache clearing to policy changes");
         Check(ingest->policy() == policy && rules.Count() == 0,
               "service reload did not replace the rules and policy");
         expectVerdict(policy == FirewallPolicy::Allow || policy == FirewallPolicy::AllowAll
             ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Drop);
     }
+    const size_t hostClears = driverCacheClears;
+    const size_t ndisClears = ndisDriverCacheClears;
     Check(Settings::SetString(Settings::Key::kDesktopPolicy, L"invalid"),
           "cannot store invalid service policy");
     Check(ingest->ReloadServiceRules(L":memory:") &&
@@ -8192,7 +8223,14 @@ void TestServicePolicyReload() {
     expectVerdict(pmkext::Verdict::Drop);
     Check(!ingest->ReloadServiceRules(L"?:\\unavailable\\rules.db"),
           "invalid service rules path unexpectedly loaded");
+    Check(driverCacheClears == hostClears && ndisDriverCacheClears == ndisClears,
+          "rules reload failure or unchanged fallback policy cleared driver caches");
     expectVerdict(pmkext::Verdict::Drop);
+    Check(FirewallPolicySetting::Save(FirewallPolicy::AllowAll) &&
+              ingest->ReloadServicePolicy() && ingest->ReloadServicePolicy() &&
+              driverCacheClears == hostClears + 1 && ndisDriverCacheClears == ndisClears,
+          "host policy-only reload did not clear exactly its changed cache");
+    expectVerdict(pmkext::Verdict::PermanentAccept);
     ingest->EndDriverSession(session.End());
     captureSession = nullptr;
     Settings::Close();
@@ -9219,7 +9257,7 @@ int main(int argc, char** argv) {
         TestServicePolicyReload();
         TestServiceRefreshBeforeAsk();
         TestRuleBeforeAskPublication();
-        TestPolicyChangeKeepsDriverCache();
+        TestPolicyChangeClearsDriverCache();
         AskQueueTestAccess::TestStorage();
         IngestTestAccess::TestHashStorage();
         TestExpiryQueues();

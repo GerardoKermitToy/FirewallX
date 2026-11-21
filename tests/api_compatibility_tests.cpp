@@ -35,8 +35,13 @@ struct MockDriver {
     unsigned shutdowns = 0;
     unsigned processStarts = 0;
     unsigned processWrites = 0;
+    unsigned abortUdpV4 = 0;
+    unsigned abortUdpV6 = 0;
     DWORD processError = ERROR_SUCCESS;
     bool validStart = true;
+    bool validAbortUdp = true;
+    DWORD lastAbortCode = 0;
+    std::array<uint8_t, 36> lastAbortPayload{};
     HANDLE device = INVALID_HANDLE_VALUE;
 } g_mock;
 
@@ -97,6 +102,17 @@ BOOL MockDeviceIoControl(HANDLE, DWORD code, LPVOID input, DWORD inputSize,
             SetLastError(g_mock.processError);
             return FALSE;
         }
+        overlapped->InternalHigh = 0;
+    } else if (code == 0x9C40E01C || code == 0x9C40E020) {
+        const bool v4 = code == 0x9C40E01C;
+        const DWORD expectedSize = v4 ? 12 : 36;
+        if (v4) ++g_mock.abortUdpV4;
+        else ++g_mock.abortUdpV6;
+        g_mock.lastAbortCode = code;
+        g_mock.validAbortUdp &= input != nullptr && inputSize == expectedSize &&
+                                output == nullptr && outputSize == 0;
+        if (input && inputSize <= g_mock.lastAbortPayload.size())
+            std::memcpy(g_mock.lastAbortPayload.data(), input, inputSize);
         overlapped->InternalHigh = 0;
     } else {
         SetLastError(ERROR_INVALID_FUNCTION);
@@ -273,6 +289,41 @@ void TestProcessControl() {
     }
 }
 
+void TestUdpAbortCommands() {
+    for (const bool pending : {false, true}) {
+        g_mock = {};
+        g_mock.pending = pending;
+        pmkext::KextClient client;
+        Check(client.open(), "не удалось открыть mock-устройство для UDP");
+
+        const std::array<uint8_t, 4> local4{192, 0, 2, 10};
+        const std::array<uint8_t, 4> remote4{198, 51, 100, 20};
+        Check(client.abortUdpFlowV4(local4.data(), 40000, remote4.data(), 443),
+              "abortUdpFlowV4 не прошёл");
+
+        const std::array<uint8_t, 16> local6{
+            0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 10};
+        const std::array<uint8_t, 16> remote6{
+            0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 20};
+        Check(client.abortUdpFlowV6(local6.data(), 40001, remote6.data(), 8443),
+              "abortUdpFlowV6 не прошёл");
+
+        pmkext::CmdAbortUdpFlowV6 expected{};
+        std::memcpy(expected.local_address, local6.data(), local6.size());
+        expected.local_port = 40001;
+        std::memcpy(expected.remote_address, remote6.data(), remote6.size());
+        expected.remote_port = 8443;
+        Check(g_mock.abortUdpV4 == 1 && g_mock.abortUdpV6 == 1 &&
+              g_mock.validAbortUdp &&
+              g_mock.lastAbortCode == 0x9C40E020 &&
+              std::memcmp(g_mock.lastAbortPayload.data(), &expected, sizeof(expected)) == 0,
+              "UDP abort IOCTL или payload не соответствует wire-ABI");
+        client.close();
+    }
+}
+
 pipe_transport::UniqueHandle CreateServer(const std::wstring& name) {
     pipe_transport::UniqueHandle pipe(CreateNamedPipeW(
         name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
@@ -405,6 +456,7 @@ int main(int argc, char** argv) {
         if (argc == 1 || std::strcmp(argv[1], "--driver") == 0) {
             TestDriverVersions();
             TestProcessControl();
+            TestUdpAbortCommands();
         }
         if (argc == 1 || std::strcmp(argv[1], "--pipe") == 0) {
             TestHandshakeVersion();

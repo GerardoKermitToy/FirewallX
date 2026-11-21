@@ -605,7 +605,6 @@ bool AppRulesEditor::Run(HWND owner, HINSTANCE inst, RuleStore& store,
         } else {
             auto& watcher = net::SharedNetworkInterfaces();
             if (!watcher.SetReverseNdisTraffic(d.appPath, d.reverseTraffic)) watcher.RequestRefresh();
-            firewallxndisfilter_clear_cache();
         }
     }
     if (d.interfaceBindingAvailable && d.excludeTransit != d.originalExcludeTransit) {

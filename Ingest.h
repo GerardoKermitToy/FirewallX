@@ -54,6 +54,10 @@ void portmaster_stop();
 void portmaster_prepare_desktop_exit(bool serviceInstalled);
 bool portmaster_running();
 pmkext::KextClient* portmaster_get_driver();
+// Прервать UDP-поток по полному tuple через текущий direct/proxy-маршрут.
+// Возвращает код Win32: ERROR_SUCCESS означает, что команда принята драйвером.
+DWORD portmaster_abort_udp_flow(const IpAddr& local, uint16_t localPort,
+                                const IpAddr& remote, uint16_t remotePort);
 // Истина только пока оконный процесс имеет активное соединение с pipe службы.
 bool portmaster_service_connected();
 // Попросить службу самостоятельно обрабатывать записи драйвера и дождаться
@@ -171,8 +175,8 @@ public:
     void Attach(RuleStore* rules, HWND ui, IngestMode mode = IngestMode::Desktop,
                 FirewallPolicy policy = FirewallPolicy::Learning);
     FirewallPolicy policy() const { return policy_.load(std::memory_order_relaxed); }
-    // Дожидается отправки старых ответов, меняет политику и сбрасывает только
-    // пользовательский кеш решений. Драйверный кеш не очищается.
+    // Дожидается отправки старых ответов, меняет политику и сбрасывает
+    // пользовательский и драйверный кеши только при фактической смене политики.
     // UI после этого вызывает FlushVerdicts и синхронизирует очередь показа.
     DWORD SetPolicy(FirewallPolicy policy);
     void ProcessEventsChanged();

@@ -147,11 +147,20 @@ void TestNdisServicePolicyReload() {
     // NDIS отсутствует, пока окно меняет политику и основной маршрут
     // возвращается к локальной обработке. Первая новая сессия не должна
     // наследовать разрешающую политику, сохранённую при запуске службы.
+    const size_t initialHostClears = driverCacheClears;
+    const size_t initialNdisClears = ndisDriverCacheClears;
     Check(FirewallPolicySetting::Save(FirewallPolicy::BlockAll) &&
               host.ReloadServiceRules(L":memory:") &&
-              guest.policy() == FirewallPolicy::BlockAll,
-          "host handoff did not update the policy of an inactive Ndis source");
+              guest.policy() == FirewallPolicy::BlockAll &&
+              driverCacheClears == initialHostClears + 1 &&
+              ndisDriverCacheClears == initialNdisClears + 1,
+          "host handoff did not update the policy and clear both changed caches");
     guest.BeginDriverSession(session.Begin());
+    Check(host.ReloadServiceRules(L":memory:") &&
+              guest.ReloadServiceRules(L":memory:") && guest.ReloadServicePolicy() &&
+              driverCacheClears == initialHostClears + 1 &&
+              ndisDriverCacheClears == initialNdisClears + 1,
+          "unchanged service policy or new session cleared driver caches");
     ndisVerdicts.clear();
     auto event = NdisEvent(1);
     const auto expect = [&](Verdict verdict) {
@@ -172,11 +181,15 @@ void TestNdisServicePolicyReload() {
 
     // NDIS также может запуститься до возвращения основного маршрута службе:
     // перечитывание нового маршрута не зависит от прежней политики хоста.
+    const size_t hostClearsBeforeNdis = driverCacheClears;
+    const size_t ndisClearsBeforeReload = ndisDriverCacheClears;
     Check(FirewallPolicySetting::Save(FirewallPolicy::BlockAll) &&
               guest.ReloadServicePolicy() &&
               host.policy() == FirewallPolicy::AllowAll &&
-              guest.policy() == FirewallPolicy::BlockAll,
-          "late Ndis startup did not reload the saved policy independently");
+              guest.policy() == FirewallPolicy::BlockAll &&
+              driverCacheClears == hostClearsBeforeNdis &&
+              ndisDriverCacheClears == ndisClearsBeforeReload + 1,
+          "late Ndis startup did not reload and clear only its changed policy");
     expect(Verdict::Drop);
 
     // Ошибка чтения правил не должна оставлять NDIS прежнюю политику:

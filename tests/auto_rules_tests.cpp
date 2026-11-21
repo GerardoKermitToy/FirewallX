@@ -30,6 +30,7 @@ bool test_process_verdict(DriverVerdictRequest request, pmkext::Verdict verdict)
 }
 
 DWORD test_clear_driver_cache() { return ERROR_SUCCESS; }
+DWORD test_clear_ndis_driver_cache() { return ERROR_SUCCESS; }
 DriverVerdictRequest test_firewallxndisfilter_register_request(uint64_t) { return {}; }
 bool test_firewallxndisfilter_process_verdict(DriverVerdictRequest,
                                              firewallxndisfilter::Client::Verdict) { return false; }

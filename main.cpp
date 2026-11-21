@@ -3618,14 +3618,6 @@ void App::InterruptSelected() {
         return;
     }
 
-    // Соединение помечается ЗАВЕРШЁННЫМ — тем же путём, которым его помечает
-    // событие on_connection_end_*. Строка не исчезает сразу: она показывается
-    // приглушённой ещё kFinishedGraceMs (FlowStore.h) вместе с итоговыми
-    // счётчиками, и лишь затем снимается. Таблиц ОС при этом не ждём:
-    // удалённый блок управления передачей может отображаться как TIME_WAIT
-    // и после того, как соединения уже нет.
-    FlowStore::Instance().CloseFlow(
-        sel.conn.key, sel.group.pid(), sel.conn.dir, sel.conn.flowGeneration);
     Tick();
 }
 

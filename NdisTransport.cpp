@@ -20,6 +20,7 @@
 DriverVerdictRequest test_firewallxndisfilter_register_request(uint64_t id);
 bool test_firewallxndisfilter_process_verdict(DriverVerdictRequest request,
                                      firewallxndisfilter::Client::Verdict verdict);
+DWORD test_clear_ndis_driver_cache();
 #endif
 
 namespace {
@@ -218,8 +219,7 @@ void RunProxy() {
 
     HANDLE waits[]{ g_wake, ready.Get() };
     const DWORD result = WaitForMultipleObjects(2, waits, FALSE, 30000);
-    if (result == WAIT_OBJECT_0 + 1 && !g_stop.load() &&
-        firewallxndisfilter_clear_cache() == ERROR_SUCCESS) {
+    if (result == WAIT_OBJECT_0 + 1 && !g_stop.load()) {
         AcquireSRWLockShared(&g_lock);
         const bool connected = g_pipe == &proxy.pipe && g_session.active();
         g_ready.store(connected, std::memory_order_release);
@@ -392,8 +392,7 @@ void RunDirect(bool service) {
             const uint64_t session = g_session.Begin();
             ReleaseSRWLockExclusive(&g_lock);
             Events().BeginDriverSession(session);
-            bool started = client.Send(Client::Command::ClearCache) == ERROR_SUCCESS;
-            if (started && route) started = route->server.Start() == ERROR_SUCCESS;
+            const bool started = !route || route->server.Start() == ERROR_SUCCESS;
             if (started) {
                 ReaderContext reader{ &client, Callbacks(route ? &*route : nullptr) };
                 const HANDLE thread = CreateThread(nullptr, 0, ReadEvents, &reader, 0, nullptr);
@@ -533,7 +532,11 @@ DWORD SendControlCommand(Client::Command commandType) {
 } // namespace
 
 DWORD firewallxndisfilter_clear_cache() {
+#ifdef FIREWALLX_TEST_VERDICTS
+    return test_clear_ndis_driver_cache();
+#else
     return SendControlCommand(Client::Command::ClearCache);
+#endif
 }
 
 bool firewallxndisfilter_running() { return g_ready.load(std::memory_order_acquire); }

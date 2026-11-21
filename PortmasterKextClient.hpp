@@ -73,6 +73,10 @@ enum class CommandType : uint8_t {
     CleanEndedConnections = 8,
     StartProcessMonitoring = 9,
     SetAppInterface       = 10,
+    SetAuthorizeOutboundUdpAtAle = 11,
+    SetInboundUdpPidFallback = 12,
+    AbortUdpFlowV4        = 13,
+    AbortUdpFlowV6        = 14,
 };
 
 // connection.rs::Verdict
@@ -116,12 +120,26 @@ struct CmdUpdateV6 {
     uint16_t remote_port;
     uint8_t  verdict;
 };
+struct CmdAbortUdpFlowV4 {
+    uint8_t  local_address[4];
+    uint16_t local_port;
+    uint8_t  remote_address[4];
+    uint16_t remote_port;
+};
+struct CmdAbortUdpFlowV6 {
+    uint8_t  local_address[16];
+    uint16_t local_port;
+    uint8_t  remote_address[16];
+    uint16_t remote_port;
+};
 #pragma pack(pop)
 
 static_assert(sizeof(CmdVerdict)        ==  9, "layout mismatch with command.rs");
 static_assert(sizeof(CmdVerdictMessage) == 10, "layout mismatch with command.rs");
 static_assert(sizeof(CmdUpdateV4)       == 14, "layout mismatch with command.rs");
 static_assert(sizeof(CmdUpdateV6)       == 38, "layout mismatch with command.rs");
+static_assert(sizeof(CmdAbortUdpFlowV4) == 12, "layout mismatch with command.rs");
+static_assert(sizeof(CmdAbortUdpFlowV6) == 36, "layout mismatch with command.rs");
 
 // ---------------------------------------------------------------------
 // IOCTL коды (common.rs)
@@ -284,6 +302,32 @@ constexpr uint32_t IOCTL_SET_APP_INTERFACE =
     detail::ctl_code(detail::kIoctlType, 0x804, METHOD_BUFFERED,
                      detail::kFileReadAccess | detail::kFileWriteAccess);
 static_assert(IOCTL_SET_APP_INTERFACE == 0x9c40e010, "IOCTL mismatch with common.rs");
+
+// Управление UDP во время работы. Булевы IOCTL принимают один байт (0/1).
+// IOCTL разрыва принимают только упакованный tuple и не возвращают данные.
+constexpr uint32_t IOCTL_SET_AUTHORIZE_OUTBOUND_UDP_AT_ALE =
+    detail::ctl_code(detail::kIoctlType, 0x805, METHOD_BUFFERED,
+                     detail::kFileReadAccess | detail::kFileWriteAccess);
+static_assert(IOCTL_SET_AUTHORIZE_OUTBOUND_UDP_AT_ALE == 0x9c40e014,
+              "IOCTL mismatch with common.rs");
+
+constexpr uint32_t IOCTL_SET_INBOUND_UDP_PID_FALLBACK =
+    detail::ctl_code(detail::kIoctlType, 0x806, METHOD_BUFFERED,
+                     detail::kFileReadAccess | detail::kFileWriteAccess);
+static_assert(IOCTL_SET_INBOUND_UDP_PID_FALLBACK == 0x9c40e018,
+              "IOCTL mismatch with common.rs");
+
+constexpr uint32_t IOCTL_ABORT_UDP_FLOW_V4 =
+    detail::ctl_code(detail::kIoctlType, 0x807, METHOD_BUFFERED,
+                     detail::kFileReadAccess | detail::kFileWriteAccess);
+static_assert(IOCTL_ABORT_UDP_FLOW_V4 == 0x9c40e01c,
+              "IOCTL mismatch with common.rs");
+
+constexpr uint32_t IOCTL_ABORT_UDP_FLOW_V6 =
+    detail::ctl_code(detail::kIoctlType, 0x808, METHOD_BUFFERED,
+                     detail::kFileReadAccess | detail::kFileWriteAccess);
+static_assert(IOCTL_ABORT_UDP_FLOW_V6 == 0x9c40e020,
+              "IOCTL mismatch with common.rs");
 
 // ---------------------------------------------------------------------
 // Структуры из драйвера (info.rs, API v3)
@@ -622,6 +666,47 @@ public:
     bool sendCleanEndedConnections() { return writeCmd(CommandType::CleanEndedConnections); }
     bool sendStartProcessMonitoring() { return writeCmd(CommandType::StartProcessMonitoring); }
 
+    bool sendSetAuthorizeOutboundUdpAtAle(bool enabled) {
+        const uint8_t value = enabled ? 1 : 0;
+        return writeCmd(CommandType::SetAuthorizeOutboundUdpAtAle, &value, sizeof(value));
+    }
+
+    bool sendSetInboundUdpPidFallback(bool enabled) {
+        const uint8_t value = enabled ? 1 : 0;
+        return writeCmd(CommandType::SetInboundUdpPidFallback, &value, sizeof(value));
+    }
+
+    bool sendAbortUdpFlowV4(const uint8_t localAddr[4], uint16_t localPort,
+                            const uint8_t remoteAddr[4], uint16_t remotePort) {
+        if (!localAddr || !remoteAddr) {
+            lastError_.store(ERROR_INVALID_PARAMETER);
+            return false;
+        }
+        CmdAbortUdpFlowV4 payload{};
+        std::memcpy(payload.local_address, localAddr, sizeof(payload.local_address));
+        payload.local_port = localPort;
+        std::memcpy(payload.remote_address, remoteAddr, sizeof(payload.remote_address));
+        payload.remote_port = remotePort;
+        return writeCmd(CommandType::AbortUdpFlowV4, &payload, sizeof(payload));
+    }
+
+    bool sendAbortUdpFlowV6(const uint8_t localAddr[16], uint16_t localPort,
+                            const uint8_t remoteAddr[16], uint16_t remotePort) {
+        if (!localAddr || !remoteAddr) {
+            lastError_.store(ERROR_INVALID_PARAMETER);
+            return false;
+        }
+        CmdAbortUdpFlowV6 payload{};
+        std::memcpy(payload.local_address, localAddr, sizeof(payload.local_address));
+        payload.local_port = localPort;
+        std::memcpy(payload.remote_address, remoteAddr, sizeof(payload.remote_address));
+        payload.remote_port = remotePort;
+        return writeCmd(CommandType::AbortUdpFlowV6, &payload, sizeof(payload));
+    }
+
+    // Команды, записываемые в драйвер, используют те же payload, что и
+    // соответствующие IOCTL, с байтом CommandType в начале.
+
     bool sendVerdict(uint64_t id, Verdict verdict) {
         CmdVerdict c{ id, static_cast<uint8_t>(verdict) };
         return writeCmd(CommandType::Verdict, &c, sizeof(c));
@@ -684,6 +769,73 @@ public:
     // таблицу: старые непрочитанные события остаются в том же wire-потоке.
     bool ioctlStartProcessMonitoring() {
         return deviceIoctl(IOCTL_START_PROCESS_MONITORING, nullptr, 0, nullptr);
+    }
+
+    bool ioctlSetAuthorizeOutboundUdpAtAle(bool enabled) {
+        const uint8_t value = enabled ? 1 : 0;
+        return deviceIoctl(IOCTL_SET_AUTHORIZE_OUTBOUND_UDP_AT_ALE,
+                           nullptr, 0, nullptr, &value, sizeof(value));
+    }
+
+    bool ioctlSetInboundUdpPidFallback(bool enabled) {
+        const uint8_t value = enabled ? 1 : 0;
+        return deviceIoctl(IOCTL_SET_INBOUND_UDP_PID_FALLBACK,
+                           nullptr, 0, nullptr, &value, sizeof(value));
+    }
+
+    bool ioctlAbortUdpFlowV4(const uint8_t localAddr[4], uint16_t localPort,
+                             const uint8_t remoteAddr[4], uint16_t remotePort) {
+        if (!localAddr || !remoteAddr) {
+            lastError_.store(ERROR_INVALID_PARAMETER);
+            return false;
+        }
+        CmdAbortUdpFlowV4 payload{};
+        std::memcpy(payload.local_address, localAddr, sizeof(payload.local_address));
+        payload.local_port = localPort;
+        std::memcpy(payload.remote_address, remoteAddr, sizeof(payload.remote_address));
+        payload.remote_port = remotePort;
+        return deviceIoctl(IOCTL_ABORT_UDP_FLOW_V4, nullptr, 0, nullptr,
+                           &payload, sizeof(payload));
+    }
+
+    bool ioctlAbortUdpFlowV6(const uint8_t localAddr[16], uint16_t localPort,
+                             const uint8_t remoteAddr[16], uint16_t remotePort) {
+        if (!localAddr || !remoteAddr) {
+            lastError_.store(ERROR_INVALID_PARAMETER);
+            return false;
+        }
+        CmdAbortUdpFlowV6 payload{};
+        std::memcpy(payload.local_address, localAddr, sizeof(payload.local_address));
+        payload.local_port = localPort;
+        std::memcpy(payload.remote_address, remoteAddr, sizeof(payload.remote_address));
+        payload.remote_port = remotePort;
+        return deviceIoctl(IOCTL_ABORT_UDP_FLOW_V6, nullptr, 0, nullptr,
+                           &payload, sizeof(payload));
+    }
+
+    // По умолчанию используется IOCTL; viaWrite выбирает эквивалентный поток команд.
+    bool setAuthorizeOutboundUdpAtAle(bool enabled, bool viaWrite = false) {
+        return viaWrite ? sendSetAuthorizeOutboundUdpAtAle(enabled)
+                        : ioctlSetAuthorizeOutboundUdpAtAle(enabled);
+    }
+
+    bool setInboundUdpPidFallback(bool enabled, bool viaWrite = false) {
+        return viaWrite ? sendSetInboundUdpPidFallback(enabled)
+                        : ioctlSetInboundUdpPidFallback(enabled);
+    }
+
+    bool abortUdpFlowV4(const uint8_t localAddr[4], uint16_t localPort,
+                        const uint8_t remoteAddr[4], uint16_t remotePort,
+                        bool viaWrite = false) {
+        return viaWrite ? sendAbortUdpFlowV4(localAddr, localPort, remoteAddr, remotePort)
+                        : ioctlAbortUdpFlowV4(localAddr, localPort, remoteAddr, remotePort);
+    }
+
+    bool abortUdpFlowV6(const uint8_t localAddr[16], uint16_t localPort,
+                        const uint8_t remoteAddr[16], uint16_t remotePort,
+                        bool viaWrite = false) {
+        return viaWrite ? sendAbortUdpFlowV6(localAddr, localPort, remoteAddr, remotePort)
+                        : ioctlAbortUdpFlowV6(localAddr, localPort, remoteAddr, remotePort);
     }
 
     // Предпочитаемый интерфейс для всех экземпляров EXE по полному пути, не PID.
