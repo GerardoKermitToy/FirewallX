@@ -154,7 +154,7 @@ void TestInheritanceShapeCacheAndPending() {
             request.pid = id % 2 ? 10102 : 10103;
             IngestTestAccess::ReceivePacket(*ingest, session, request, id, packet, 4);
             Check(sentVerdicts.back() == std::make_pair(id, id % 2
-                ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Drop),
+                ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Block),
                 "shape cache mixed identical executables under different parents");
         }
         const pmkext::ProcessCreated added{10104, 10101};
@@ -168,7 +168,7 @@ void TestInheritanceShapeCacheAndPending() {
         rules.SetInheritance(child.appPath, RuleInheritance::Never);
         request.pid = 10102;
         IngestTestAccess::ReceivePacket(*ingest, session, request, 7, packet, 4);
-        Check(sentVerdicts.back().second == pmkext::Verdict::Drop,
+        Check(sentVerdicts.back().second == pmkext::Verdict::Block,
               "shape cache ignored no-inherit flag");
         Check(driverCacheClears == cacheClearsBefore,
               "inheritance flag change reset the driver cache");
@@ -213,7 +213,7 @@ void TestInheritanceShapeCacheAndPending() {
         Rule parent = MakeBlockRule(forRule);
         rules.Add(parent);
         Check(ingest->FlushVerdicts() == 1 && sentVerdicts.size() == 1 &&
-              sentVerdicts[0] == std::make_pair(uint64_t{50}, pmkext::Verdict::Drop) &&
+              sentVerdicts[0] == std::make_pair(uint64_t{50}, pmkext::Verdict::Block) &&
               ingest->calls() == ingest->answered(),
               "retained pending did not match newly created parent rule");
         ingest->EndDriverSession(session.End());
@@ -384,7 +384,7 @@ void TestInheritancePendingPidReuse() {
           "PID reuse pending groups did not all receive verdicts");
     for (uint64_t id : {uint64_t{701}, uint64_t{702}, uint64_t{703}})
         Check(std::find(sentVerdicts.begin(), sentVerdicts.end(), std::make_pair(id,
-                  id == 701 ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Drop)) != sentVerdicts.end(),
+                  id == 701 ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Block)) != sentVerdicts.end(),
               "old and new pending used the same process ancestry");
     ingest->EndDriverSession(session.End());
     captureSession = nullptr;

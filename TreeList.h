@@ -106,7 +106,7 @@ public:
         bool         lastChild = false;   // направляющая линия / разметка фильтра
         bool         speedActive = false; // акцентный цвет скорости (только Modern)
         bool         pathKnown = false;   // путь известен; сама строка пути хранится у группы
-        int          ruleAction = -1;     // 0 Allow, 1 Block, 2 Ask, -1 нет правила
+        int          ruleAction = -1;     // 0 Allow, 1 Block, 2 Drop, -1 нет правила
         ProcessIconRef icon;
         int          groupRow  = -1;       // индекс строки процесса для дочерней
         RowKey       key;                 // ключ строки

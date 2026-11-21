@@ -1515,6 +1515,51 @@ void TestPostAppPidDatabase() {
     Check(DeleteFileW(filename) != FALSE, "не удалось удалить временную базу фильтра PID");
 }
 
+void TestRuleActionPersistence() {
+    Check(static_cast<int>(RuleAction::Allow) == 0 &&
+              static_cast<int>(RuleAction::Block) == 1 &&
+              static_cast<int>(RuleAction::Drop) == 2,
+          "RuleAction values changed unexpectedly");
+
+    Rule cycle;
+    cycle.action = RuleAction::Allow;
+    cycle.ToggleAction();
+    Check(cycle.action == RuleAction::Block, "action cycle skipped regular block");
+    cycle.ToggleAction();
+    Check(cycle.action == RuleAction::Drop, "action cycle skipped silent block");
+    cycle.ToggleAction();
+    Check(cycle.action == RuleAction::Allow, "action cycle did not return to allow");
+
+    Rule rule;
+    rule.id = 1;
+    rule.scope = RuleScope::Global;
+    rule.conds = CondNone;
+    rule.autoName = false;
+    rule.name = L"action persistence";
+    std::wstring error;
+    RuleDb database;
+    Check(database.Open(L":memory:", error), "не удалось открыть базу действий");
+    for (const RuleAction action : {RuleAction::Allow, RuleAction::Block, RuleAction::Drop}) {
+        rule.action = action;
+        Check(rule.blocks() == (action != RuleAction::Allow),
+              "silent block was not treated as a blocking action");
+        Check(database.SaveAll({rule}, error), "не удалось сохранить действие правила");
+        std::vector<Rule> loaded;
+        uint64_t maxId = 0;
+        Check(database.Load(loaded, maxId, error) && loaded.size() == 1 &&
+                  loaded.front().action == action,
+              "действие правила изменилось после загрузки из базы");
+        const UINT textId = action == RuleAction::Allow ? IDS_RULE_ACT_ALLOW
+            : action == RuleAction::Block ? IDS_RULE_ACT_BLOCK : IDS_RULE_ACT_DROP;
+        Check(rule.ActionTextRu() == LoadStringRes(textId),
+              "действие правила получило неверную локализованную подпись");
+        const UINT hintId = action == RuleAction::Allow ? IDS_HINT_CLICK_BLOCK
+            : action == RuleAction::Block ? IDS_HINT_CLICK_DROP : IDS_HINT_CLICK_ALLOW;
+        Check(RuleExplainMarkup(rule).find(LoadStringRes(hintId)) != std::wstring::npos,
+              "расшифровка правила не предлагает следующий тип действия");
+    }
+}
+
 void TestRuleIdDatabaseLoading() {
     wchar_t directory[MAX_PATH]{};
     const DWORD length = GetTempPathW(MAX_PATH, directory);
@@ -2467,6 +2512,7 @@ int main() {
     TestPostAppPidFilter();
     TestPostAppPidTextAndLinks();
     TestPostAppPidDatabase();
+    TestRuleActionPersistence();
     TestNumericLookupHashes();
     TestSharedRuleNames();
     TestSharedRuleNamesDatabase();

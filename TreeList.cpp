@@ -242,12 +242,12 @@ const wchar_t* const kDash = L"\u2014";
 // Значения Row::ruleAction (RuleAction из Rules.h). Сам заголовок правил
 // списку не нужен, а зависимость от него ради трёх констант была бы лишней.
 constexpr int kActionBlock = 1;
-constexpr int kActionAsk   = 2;
+constexpr int kActionDrop  = 2;
 
 // палитра действий современного оформления (Fluent, читаема на светлом фоне)
 constexpr COLORREF kAllow = RGB(0x0F, 0x7B, 0x0F);
 constexpr COLORREF kBlock = RGB(0xC4, 0x2B, 0x1C);
-constexpr COLORREF kAsk   = RGB(0xA8, 0x62, 0x00);
+constexpr COLORREF kDrop  = RGB(0xA8, 0x62, 0x00);
 
 // Особое оформление классического вида: имя блокирующего правила красное.
 // Коричневая подпись домена общая для обоих видов и рисуется отдельно в первой
@@ -489,7 +489,7 @@ void TreeList::RefreshColors() {
 COLORREF TreeList::ActionColor(int action) const {
     switch (action) {
         case kActionBlock: return kBlock;
-        case kActionAsk:   return kAsk;
+        case kActionDrop:  return kDrop;
         default:           return kAllow;
     }
 }

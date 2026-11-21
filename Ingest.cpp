@@ -1375,7 +1375,8 @@ constexpr pmkext::Verdict VerdictOf(RuleAction action, uint8_t payloadLayer,
     constexpr uint16_t kTcpAck = 0x010;
     constexpr uint16_t kTcpSynAck = kTcpSyn | kTcpAck;
 
-    if (action == RuleAction::Block) return pmkext::Verdict::Drop;
+    if (action == RuleAction::Block) return pmkext::Verdict::Block;
+    if (action == RuleAction::Drop) return pmkext::Verdict::Drop;
     const bool webPort = remotePort == 80 || remotePort == 8080 ||
                          remotePort == 443 || remotePort == 8443;
     // Все исключения, зависящие от TCP-флагов, закрыты общей проверкой
@@ -1472,6 +1473,8 @@ static_assert(VerdictOf(RuleAction::Allow, 3, 0x012, false, Proto::Tcp,
 static_assert(VerdictOf(RuleAction::Allow, 4, 0, false, Proto::Udp,
                         Dir::Out, 8443) == pmkext::Verdict::PermanentAccept);
 static_assert(VerdictOf(RuleAction::Block, 3, 0x002, false, Proto::Tcp,
+                        Dir::Out, 8443) == pmkext::Verdict::Block);
+static_assert(VerdictOf(RuleAction::Drop, 3, 0x002, false, Proto::Tcp,
                         Dir::Out, 8443) == pmkext::Verdict::Drop);
 static_assert(IsTlsClientHelloCandidate(3, 0x010, true, Proto::Tcp,
                                        Dir::Out, 8443));
@@ -1508,6 +1511,8 @@ static_assert(VerdictOf(RuleAction::Allow, 3, 0x010, false, Proto::Tcp,
 static_assert(VerdictOf(RuleAction::Allow, 3, 0x018, true, Proto::Tcp,
                         Dir::Out, 8080) == pmkext::Verdict::PermanentAccept);
 static_assert(VerdictOf(RuleAction::Block, 3, 0x002, false, Proto::Tcp,
+                        Dir::Out, 8080) == pmkext::Verdict::Block);
+static_assert(VerdictOf(RuleAction::Drop, 3, 0x002, false, Proto::Tcp,
                         Dir::Out, 8080) == pmkext::Verdict::Drop);
 static_assert(IsHttpHostCandidate(3, 0x010, true, Proto::Tcp, Dir::Out, 8080));
 static_assert(IsHttpHostCandidate(3, 0x018, true, Proto::Tcp, Dir::Out, 8080));

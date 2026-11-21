@@ -854,7 +854,8 @@ void Monitor::BuildSnapshot(Snapshot& out, bool buildDisplay) {
 
             // Текст причины нужен только раскрытой строке либо фильтру и
             // строится лениво в App::RebuildRows.
-            if (connection.blockedAt)
+            if (connection.blockedAt &&
+                connection.ruleAction != static_cast<int>(RuleAction::Drop))
                 connection.ruleAction = static_cast<int>(RuleAction::Block);
 
             if (connection.bytesKnown()) {

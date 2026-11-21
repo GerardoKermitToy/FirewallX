@@ -21,7 +21,8 @@ namespace {
 //   * протокол хранится ОДНИМ полем ip_proto — номером 0..255. Колонок proto
 //     (код 0/1/2) и icmp_v6 больше нет: номер и есть протокол, а ICMPv6 —
 //     это номер 58;
-//   * действие хранится как 0/1: «спрашивать» перестало быть действием;
+//   * действие хранится как 0/1/2: разрешение, блокировка с уведомлением либо
+//     блокировка без уведомления; «спрашивать» перестало быть действием;
 //   * добавлена колонка services — условие «сервис».
 //
 // Списки хранятся строками:
@@ -375,9 +376,15 @@ bool RuleDb::Load(std::vector<Rule>& out, uint64_t& maxId, std::wstring& error) 
                     : Proto::Tcp;
 
         r.dir = (sqlite3_column_int(st, ColDir) == 1) ? Dir::In : Dir::Out;
-        // Действий два: 0 — разрешать, всё остальное — блокировать.
-        r.action = (sqlite3_column_int(st, ColAction) == 0) ? RuleAction::Allow
-                                                            : RuleAction::Block;
+        // Значения действий: 0 — разрешать, 1 — блокировать с уведомлением,
+        // 2 — блокировать без уведомления. Неизвестное ненулевое значение
+        // трактуем как обычную блокировку, чтобы повреждённая база не разрешила
+        // трафик неожиданно.
+        switch (sqlite3_column_int(st, ColAction)) {
+        case 0: r.action = RuleAction::Allow; break;
+        case 2: r.action = RuleAction::Drop; break;
+        default: r.action = RuleAction::Block; break;
+        }
 
         TextToAddrs(ColumnText(st, ColRemoteAddrs), r.remoteAddrs);
         TextToAddrs(ColumnText(st, ColLocalAddrs),  r.localAddrs);
@@ -489,7 +496,7 @@ bool RuleDb::SaveAll(const std::vector<Rule>& rules, std::wstring& error,
         sqlite3_bind_int64(st, 9, static_cast<sqlite3_int64>(r.conds));
         sqlite3_bind_int(st, 10, ProtoNumber(r.proto));
         sqlite3_bind_int(st, 11, static_cast<int>(r.dir));
-        sqlite3_bind_int(st, 12, r.blocks() ? 1 : 0);
+        sqlite3_bind_int(st, 12, static_cast<int>(r.action));
         BindText(st, 13, AddrsToText(r.remoteAddrs));
         BindText(st, 14, AddrsToText(r.localAddrs));
         BindText(st, 15, PortsToText(r.remotePorts));

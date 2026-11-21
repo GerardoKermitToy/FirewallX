@@ -426,7 +426,11 @@ std::wstring Rule::DirTextRu() const {
 }
 
 std::wstring Rule::ActionTextRu() const {
-    return (action == RuleAction::Allow) ? LoadStringRes(IDS_RULE_ACT_ALLOW) : LoadStringRes(IDS_RULE_ACT_BLOCK);
+    switch (action) {
+    case RuleAction::Allow: return LoadStringRes(IDS_RULE_ACT_ALLOW);
+    case RuleAction::Block: return LoadStringRes(IDS_RULE_ACT_BLOCK);
+    default:               return LoadStringRes(IDS_RULE_ACT_DROP);
+    }
 }
 
 std::wstring Rule::ScopeTextRu() const {
@@ -538,7 +542,9 @@ std::wstring Rule::ConditionFlagsText() const {
 }
 
 std::wstring Rule::BuildAutoName() const {
-    std::wstring s = ActionTextRu();
+    // Автоматическое имя не различает блокировку с уведомлением и без уведомления.
+    std::wstring s = LoadStringRes(action == RuleAction::Allow
+        ? IDS_RULE_ACT_ALLOW : IDS_RULE_ACT_BLOCK);
     s += L" ";
     if ((conds & CondDirection) && dir != Dir::Unknown) { s += DirTextRu(); s += L" "; }
     s += ProtoPhrase(*this);
@@ -587,8 +593,8 @@ std::wstring RuleExplainMarkup(const Rule& r) {
     if (!r.protoFixed()) s += LoadStringRes(IDS_HINT_PICK_PROTO);
     s += L"\r\n";
 
-    // Направление, как и действие, имеет всего два значения: щелчок по ссылке
-    // сразу меняет его на противоположное.
+    // Направление и действие переключаются щелчком по ссылке в расшифровке.
+    // Направление имеет два значения, действие — три.
     if (r.conds & CondDirection) {
         s += kPadSub;
         s += LoadStringRes(IDS_EXPL_AND_DIR) + Anchor(RuleLink::kDir, r.DirTextRu());
@@ -631,9 +637,17 @@ std::wstring RuleExplainMarkup(const Rule& r) {
 
     s += kPad;
     s += Anchor(RuleLink::kAction, r.ActionTextRu());
-    s += (r.action == RuleAction::Allow)
-            ? LoadStringRes(IDS_HINT_CLICK_BLOCK)
-            : LoadStringRes(IDS_HINT_CLICK_ALLOW);
+    switch (r.action) {
+    case RuleAction::Allow:
+        s += LoadStringRes(IDS_HINT_CLICK_BLOCK);
+        break;
+    case RuleAction::Block:
+        s += LoadStringRes(IDS_HINT_CLICK_DROP);
+        break;
+    default:
+        s += LoadStringRes(IDS_HINT_CLICK_ALLOW);
+        break;
+    }
     return s;
 }
 

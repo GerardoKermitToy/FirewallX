@@ -60,13 +60,13 @@ void TestPreferredInterfaceIngest() {
                   "cached verdict or firewall policy bypassed preferred-interface blocking");
         };
         const auto baseline = policy == FirewallPolicy::BlockAll
-            ? pmkext::Verdict::Drop : pmkext::Verdict::PermanentAccept;
+            ? pmkext::Verdict::Block : pmkext::Verdict::PermanentAccept;
         receive(1, baseline);
         receive(2, baseline);
         rules.SetPreferredInterface(request.appPath, L"Unavailable preferred interface for ingest tests");
         for (uint64_t id : {3, 4}) {
             flows.Reset();
-            receive(id, pmkext::Verdict::Drop);
+            receive(id, pmkext::Verdict::Block);
             CheckPreferredInterfaceFlow(request, mode, true);
             if (FirewallPolicies::UsesRules(policy))
                 Check(IngestTestAccess::HasCurrentShapeCache(*ingest),
@@ -76,7 +76,7 @@ void TestPreferredInterfaceIngest() {
         flows.Reset();
         receive(5, baseline);
         CheckPreferredInterfaceFlow(request, mode,
-                                    baseline == pmkext::Verdict::Drop && dir == Dir::In);
+                                    baseline == pmkext::Verdict::Block && dir == Dir::In);
         Check(ingest->waiting() == 0 && ingest->calls() == ingest->answered() && driverCacheClears == cacheClears,
               "preferred-interface change left obligations or cleared the driver cache");
         ingest->EndDriverSession(session.End());
@@ -112,7 +112,7 @@ void TestPreferredInterfaceIngest() {
                   "unavailable interface did not settle the one-shot answer");
         }
         Check(sentVerdicts.size() == 1 && sentVerdicts.front().second ==
-                  (answerMode ? pmkext::Verdict::PermanentDrop : pmkext::Verdict::Drop),
+                  (answerMode ? pmkext::Verdict::PermanentDrop : pmkext::Verdict::Block),
               "pending answer bypassed an unavailable preferred interface");
         CheckPreferredInterfaceFlow(request, IngestMode::Desktop, true);
         Check(ingest->waiting() == 0 && ingest->calls() == ingest->answered() && driverCacheClears == cacheClears,
@@ -167,15 +167,15 @@ void TestBlockOtherInterfacesIngest() {
             if (checkFlow) CheckPreferredInterfaceFlow(request, mode, true);
         };
         const auto baseline = policy == FirewallPolicy::BlockAll
-            ? pmkext::Verdict::Drop : pmkext::Verdict::PermanentAccept;
+            ? pmkext::Verdict::Block : pmkext::Verdict::PermanentAccept;
         Check(rules.SetPreferredInterface(request.appPath, adapter.name, false), "cannot configure test interface");
         receive(1, 0, baseline, false);
         Check(rules.SetPreferredInterface(request.appPath, adapter.name, true), "cannot enable interface blocking");
-        receive(2, 0, pmkext::Verdict::Drop, true);
-        receive(3, 0, pmkext::Verdict::Drop, true);
+        receive(2, 0, pmkext::Verdict::Block, true);
+        receive(3, 0, pmkext::Verdict::Block, true);
         receive(4, 1, baseline, false);
         receive(5, adapter.number, baseline, false);
-        receive(6, 0, pmkext::Verdict::Drop, true);
+        receive(6, 0, pmkext::Verdict::Block, true);
         Check(rules.SetPreferredInterface(request.appPath, L"", true), "cannot restore default interface");
         receive(7, 0, baseline, false);
         Check(ingest->waiting() == 0 && ingest->calls() == ingest->answered() && driverCacheClears == cacheClears,
@@ -243,13 +243,13 @@ void TestBlockOtherInterfacesWireEvents() {
             if (checkFlow) CheckPreferredInterfaceFlow(request, mode, true);
         };
         const auto baseline = policy == FirewallPolicy::BlockAll
-            ? pmkext::Verdict::Drop : pmkext::Verdict::PermanentAccept;
+            ? pmkext::Verdict::Block : pmkext::Verdict::PermanentAccept;
         const auto pathReads = IngestWorkProbe::counts.processPathReads;
         receive(1, 0, baseline, false);
         Check(IngestWorkProbe::counts.processPathReads == pathReads,
               "extreme policy resolved process paths without interface preferences");
         Check(rules.SetPreferredInterface(self->text, adapter.name, true), "cannot configure wire event test");
-        receive(2, 0, pmkext::Verdict::Drop, true);
+        receive(2, 0, pmkext::Verdict::Block, true);
         Check(IngestWorkProbe::counts.processPathReads > pathReads,
               "extreme policy did not resolve the process path for interface restrictions");
         receive(3, 1, baseline, false);
@@ -258,7 +258,7 @@ void TestBlockOtherInterfacesWireEvents() {
         request.interfaceIndex = 0;
         flows.Reset();
         IngestTestAccess::ReceivePacket(*ingest, session, request, 5, {}, 3, -1, -1, true);
-        Check(sentVerdicts.size() == 5 && sentVerdicts.back() == std::pair{uint64_t{5}, pmkext::Verdict::Drop},
+        Check(sentVerdicts.size() == 5 && sentVerdicts.back() == std::pair{uint64_t{5}, pmkext::Verdict::Block},
               "interface restriction missed an event prepared without a process path");
         CheckPreferredInterfaceFlow(request, mode, true);
         ingest->EndDriverSession(session.End());
@@ -308,7 +308,7 @@ void TestBlockOtherInterfacesRace() {
         const auto reads = IngestWorkProbe::counts.processPathReads;
         IngestTestAccess::ReceivePacket(*ingest, session, request, 200, {}, 3, -1, -1, true);
         Check(!IngestWorkProbe::beforePolicyMatch && IngestWorkProbe::counts.processPathReads > reads &&
-              sentVerdicts.size() == 1 && sentVerdicts.front() == std::pair{uint64_t{200}, pmkext::Verdict::Drop},
+              sentVerdicts.size() == 1 && sentVerdicts.front() == std::pair{uint64_t{200}, pmkext::Verdict::Block},
               "interface preference enabled during matching was bypassed");
         CheckPreferredInterfaceFlow(request, mode, true);
         ingest->EndDriverSession(session.End());
@@ -353,7 +353,7 @@ void TestBlockOtherInterfacesPending() {
             Check(ingest->AnswerOnce(pending.front().id, RuleAction::Allow), "cannot settle loopback request");
         } else {
             Check(ingest->FlushVerdicts() == 1 && sentVerdicts.size() == 1 &&
-                  sentVerdicts.front().second == pmkext::Verdict::Drop,
+                  sentVerdicts.front().second == pmkext::Verdict::Block,
                   "pending request was not blocked after enabling interface restriction");
         }
         if (!loopback) CheckPreferredInterfaceFlow(request, IngestMode::Desktop, true);

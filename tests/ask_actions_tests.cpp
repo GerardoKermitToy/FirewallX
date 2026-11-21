@@ -55,6 +55,16 @@ void Check(bool value, const char* message) {
     if (!value) throw std::runtime_error(message);
 }
 
+// Ожидаемый обычный verdict для постоянного правила; одноразовые ответы
+// используют отдельную ветку с PermanentAccept/PermanentDrop.
+pmkext::Verdict ExpectedPersistentVerdict(RuleAction action) {
+    switch (action) {
+    case RuleAction::Allow: return pmkext::Verdict::PermanentAccept;
+    case RuleAction::Block: return pmkext::Verdict::Block;
+    default: return pmkext::Verdict::Drop;
+    }
+}
+
 IpAddr Ip(const wchar_t* text) {
     IpAddr address;
     Check(ParseIpAddr(text, address), "invalid test address");
@@ -154,6 +164,7 @@ void TestNewResources() {
     for (size_t i = 0; i < count; ++i) {
         for (UINT id : {IDS_ACTION_ALLOW_ONCE, IDS_ACTION_BLOCK_ONCE,
                         IDS_ACTION_USE_PRESETS, IDS_ACTION_USE_PRESETS_DESC,
+                        IDS_RULE_ACT_DROP, IDS_HINT_CLICK_DROP,
                         IDS_RED_PAYLOAD, IDS_RULE_PID_ZERO, IDS_COND_PID,
                         IDS_INHERITANCE_ENABLED, IDS_INHERITANCE_NEVER,
                         IDS_INHERITANCE_NOTE, IDS_INHERITANCE_SECTION,
@@ -1102,7 +1113,7 @@ void TestAutomaticRuleNames() {
         Check(LoadStringResFmt(IDS_RULEN_ADDR_LIST_FMT, L"1.1.1.1") == L"(1.1.1.1, ...)" &&
               !LoadStringRes(IDS_ERR_ADDR_EXISTS).empty(),
               "missing compact address list format or duplicate-address message");
-        for (RuleAction action : {RuleAction::Allow, RuleAction::Block})
+        for (RuleAction action : {RuleAction::Allow, RuleAction::Block, RuleAction::Drop})
         for (Dir dir : {Dir::Out, Dir::In, Dir::Unknown})
         for (Proto proto : {Proto::Tcp, Proto::Udp, Proto::Sctp, Proto::Dccp, Proto::UdpLite,
                             Proto::Icmp, Proto::IcmpV6, Proto{200}})
@@ -8127,7 +8138,8 @@ void TestServicePolicies() {
         const bool allowed = matched ? match == 0
             : policy == FirewallPolicy::Allow || policy == FirewallPolicy::AllowAll ||
               (policy == FirewallPolicy::Learning && technicalIcmp);
-        const auto expected = allowed ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Drop;
+        const auto expected = allowed ? pmkext::Verdict::PermanentAccept
+                                      : ExpectedPersistentVerdict(RuleAction::Block);
         const int icmpType = !ProtoIsIcmp(proto) ? -1 : proto == Proto::Icmp
             ? (technicalIcmp ? 3 : 8) : (technicalIcmp ? 135 : 128);
 
@@ -8185,7 +8197,7 @@ void TestServicePolicyReload() {
               std::pair{wireId, verdict}, "service reload retained a stale verdict");
         Check(ingest->waiting() == 0, "service Learning created an interactive request");
     };
-    expectVerdict(pmkext::Verdict::Drop);
+    expectVerdict(pmkext::Verdict::Block);
 
     for (auto policy : {FirewallPolicy::AllowAll, FirewallPolicy::BlockAll,
                         FirewallPolicy::Allow, FirewallPolicy::Block,
@@ -8211,7 +8223,7 @@ void TestServicePolicyReload() {
         Check(ingest->policy() == policy && rules.Count() == 0,
               "service reload did not replace the rules and policy");
         expectVerdict(policy == FirewallPolicy::Allow || policy == FirewallPolicy::AllowAll
-            ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Drop);
+            ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Block);
     }
     const size_t hostClears = driverCacheClears;
     const size_t ndisClears = ndisDriverCacheClears;
@@ -8220,12 +8232,12 @@ void TestServicePolicyReload() {
     Check(ingest->ReloadServiceRules(L":memory:") &&
           ingest->policy() == FirewallPolicy::Learning,
           "invalid service policy did not use Learning");
-    expectVerdict(pmkext::Verdict::Drop);
+    expectVerdict(pmkext::Verdict::Block);
     Check(!ingest->ReloadServiceRules(L"?:\\unavailable\\rules.db"),
           "invalid service rules path unexpectedly loaded");
     Check(driverCacheClears == hostClears && ndisDriverCacheClears == ndisClears,
           "rules reload failure or unchanged fallback policy cleared driver caches");
-    expectVerdict(pmkext::Verdict::Drop);
+    expectVerdict(pmkext::Verdict::Block);
     Check(FirewallPolicySetting::Save(FirewallPolicy::AllowAll) &&
               ingest->ReloadServicePolicy() && ingest->ReloadServicePolicy() &&
               driverCacheClears == hostClears + 1 && ndisDriverCacheClears == ndisClears,
@@ -8281,8 +8293,7 @@ void TestServiceRefreshBeforeAsk() {
         serviceRefreshCompleted = serviceRefreshRequested;
         SetServices(request.pid, {L"KnownService"});
         ingest->TakePending(pending);
-        const auto expected = action == RuleAction::Allow
-            ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Drop;
+        const auto expected = ExpectedPersistentVerdict(action);
         Check(pending.empty() && sentVerdicts.size() == 2 &&
                   sentVerdicts[0] == std::pair{uint64_t{100}, expected} &&
                   sentVerdicts[1] == std::pair{uint64_t{101}, expected},
@@ -8389,8 +8400,7 @@ void TestPostAppPidCache() {
             request.pid = pid;
             const size_t before = sentVerdicts.size();
             IngestTestAccess::ReceivePacket(*ingest, session, request, wireId, {});
-            const auto expected = expectedAction == RuleAction::Allow
-                ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Drop;
+            const auto expected = ExpectedPersistentVerdict(expectedAction);
             Check(sentVerdicts.size() == before + 1 &&
                       sentVerdicts.back() == std::pair{wireId, expected},
                   "verdict cache reused a PID 0 decision for a nonzero PID or vice versa");
@@ -8442,8 +8452,8 @@ void TestAutomaticPidRuleSettlesOnlyZero() {
     rules.Add(blockAny);
     ingest->FlushVerdicts();
     Check(sentVerdicts.size() == 3 && ingest->waiting() == 0 &&
-              sentVerdicts[1].second == pmkext::Verdict::Drop &&
-              sentVerdicts[2].second == pmkext::Verdict::Drop,
+              sentVerdicts[1].second == pmkext::Verdict::Block &&
+              sentVerdicts[2].second == pmkext::Verdict::Block,
           "automatic rule with any PID did not settle remaining requests");
     ingest->EndDriverSession(session.End());
     captureSession = nullptr;
@@ -8497,8 +8507,7 @@ void TestRuleBeforeAskPublication() {
         rule.conds = CondNone;
         rule.action = action;
         rules.Add(rule);
-        const auto expected = action == RuleAction::Allow
-            ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Drop;
+        const auto expected = ExpectedPersistentVerdict(action);
         std::vector<AskRequest> pending;
         ingest->TakePending(pending);
         Check(pending.empty() && sentVerdicts.size() == 1 && ingest->waiting() == 0 &&

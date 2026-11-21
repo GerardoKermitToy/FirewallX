@@ -38,8 +38,8 @@ bool ChooseWfpFlags(HWND owner, HINSTANCE inst, uint32_t& flags);
 bool ShowSaveError(HWND owner, const RuleStore& store, uint64_t& reportedVersion,
                    decltype(&MessageBoxW) showMessage = MessageBoxW);
 
-// Диалогов выбора направления и действия нет: у каждого всего два значения,
-// щелчок по ссылке в расшифровке правила сразу переключает их.
+// Диалогов выбора направления и действия нет: направление имеет два значения,
+// действие — три; щелчок по ссылке в расшифровке правила переключает их.
 
 // IPv6-адрес с необязательным префиксом 0..128; при ошибке out не меняется.
 bool ParseIpv6Address(const std::wstring& text, AddrItem& out);

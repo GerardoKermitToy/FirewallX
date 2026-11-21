@@ -91,7 +91,7 @@ void ImmediateBlocked() {
     event.external_connection_id = 1;
     Receive(*ingest, event, Packet(event, 0x002));
     Check(sentVerdicts.size() == 1 &&
-              sentVerdicts.front().second == pmkext::Verdict::Drop,
+              sentVerdicts.front().second == pmkext::Verdict::Block,
           "immediate inbound block returned an incorrect verdict");
 
     FlowStore::View view;
@@ -137,7 +137,7 @@ void TcpVerdicts() {
         {0x110, false, 3, false, pmkext::Verdict::PermanentAccept},
     };
     for (const auto mode : {IngestMode::Desktop, IngestMode::Service})
-    for (const auto action : {RuleAction::Allow, RuleAction::Block}) {
+    for (const auto action : {RuleAction::Allow, RuleAction::Block, RuleAction::Drop}) {
         DriverVerdictSession session;
         captureSession = &session;
         sentVerdicts.clear();
@@ -158,8 +158,9 @@ void TcpVerdicts() {
             const std::vector<uint8_t> data(c.payload ? 1 : 0, 0);
             const auto packet = Packet(event, c.flags, data);
             const bool web = port == 80 || port == 8080 || port == 443 || port == 8443;
-            const auto expected = action == RuleAction::Block ? pmkext::Verdict::Drop
-                : web ? c.webVerdict : pmkext::Verdict::PermanentAccept;
+            const auto expected = action == RuleAction::Allow
+                ? (web ? c.webVerdict : pmkext::Verdict::PermanentAccept)
+                : ExpectedPersistentVerdict(action);
             // Повтор проверяет и matcher, и уже заполненный кеш формы.
             for (int repeat = 0; repeat < 2; ++repeat) {
                 event.external_connection_id = ++id;
@@ -204,7 +205,7 @@ void PolicyPaths() {
         Receive(*ingest, event, Packet(event, 0x010));
         const bool usesRules = FirewallPolicies::UsesRules(policy);
         const auto expected = policy == FirewallPolicy::AllowAll
-            ? pmkext::Verdict::Accept : pmkext::Verdict::Drop;
+            ? pmkext::Verdict::Accept : pmkext::Verdict::Block;
         Check(sentVerdicts.size() == 1 && sentVerdicts.front().second == expected,
               "skipping process metadata changed policy precedence");
         Check(IngestWorkProbe::counts.processPathReads == (usesRules ? 1u : 0u),

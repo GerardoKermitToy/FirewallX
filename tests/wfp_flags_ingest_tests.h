@@ -39,8 +39,7 @@ void TestWfpFlagShapeCache() {
             request.conditionFlags = flags;
             const size_t before = sentVerdicts.size();
             IngestTestAccess::ReceivePacket(*ingest, session, request, ++id, {});
-            const auto verdict = expected == RuleAction::Allow
-                ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Drop;
+            const auto verdict = ExpectedPersistentVerdict(expected);
             Check(sentVerdicts.size() == before + 1 && sentVerdicts.back() == std::pair{id, verdict},
                   "shape cache reused a verdict across different WFP condition masks");
         };
@@ -252,7 +251,7 @@ void TestWfpFlagsNeverMatchNdis() {
         guest.HandleNdis(event, nullptr, 0);
         Check(ndisVerdicts.size() == 2 && sentVerdicts.empty() &&
                   std::all_of(ndisVerdicts.begin(), ndisVerdicts.end(), [](const auto& item) {
-                      return item.second == Native::Verdict::Drop;
+                      return item.second == Native::Verdict::Block;
                   }), "a WFP flag rule matched FirewallXNdisFilter events");
         guest.EndDriverSession(session.End());
         host.Detach();

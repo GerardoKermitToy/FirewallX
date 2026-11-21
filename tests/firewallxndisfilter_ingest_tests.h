@@ -104,7 +104,7 @@ void TestNdisPolicyAndVerdictRouting() {
             } else {
                 const bool allow = policy == FirewallPolicy::Allow || policy == FirewallPolicy::AllowAll;
                 Check(ndisVerdicts.size() == 1 && ndisVerdicts[0].first == event.id &&
-                          ndisVerdicts[0].second == (allow ? Verdict::PermanentAccept : Verdict::Drop) &&
+                          ndisVerdicts[0].second == (allow ? Verdict::PermanentAccept : Verdict::Block) &&
                           guest.waiting() == 0,
                       "Ndis callback ignored the selected policy");
             }
@@ -171,7 +171,7 @@ void TestNdisServicePolicyReload() {
               "Ndis request used an outdated service policy");
         ++event.id;
     };
-    expect(Verdict::Drop);
+    expect(Verdict::Block);
 
     Check(FirewallPolicySetting::Save(FirewallPolicy::AllowAll) &&
               host.ReloadServiceRules(L":memory:") &&
@@ -190,7 +190,7 @@ void TestNdisServicePolicyReload() {
               driverCacheClears == hostClearsBeforeNdis &&
               ndisDriverCacheClears == ndisClearsBeforeReload + 1,
           "late Ndis startup did not reload and clear only its changed policy");
-    expect(Verdict::Drop);
+    expect(Verdict::Block);
 
     // Ошибка чтения правил не должна оставлять NDIS прежнюю политику:
     // служба всё равно применяет только что прочитанную настройку.
@@ -240,7 +240,7 @@ void TestNdisServicePolicyReload() {
         Check(hostPaused && saved && ndisStartedInTime && earlyNdisRead == WAIT_TIMEOUT &&
                   hostReloaded && ndisReloaded && guest.policy() == FirewallPolicy::BlockAll,
               "concurrent service reloads published an outdated Ndis policy");
-        expect(Verdict::Drop);
+        expect(Verdict::Block);
     }
 
     guest.EndDriverSession(session.End());
@@ -672,7 +672,7 @@ void TestHostInterfaceVerdictIsolation() {
         const uint64_t id = sentVerdicts.size() + 1;
         IngestTestAccess::ReceivePacket(ingest, session, request, id, {});
         Check(sentVerdicts.size() == id && sentVerdicts.back().second ==
-                  (number ? pmkext::Verdict::Drop : pmkext::Verdict::PermanentAccept),
+                  (number ? pmkext::Verdict::Block : pmkext::Verdict::PermanentAccept),
               "shape cache reused a verdict from another interface");
     }
     ingest.EndDriverSession(session.End());
@@ -802,7 +802,7 @@ void TestFrozenPendingInterfaceIdentity() {
               IngestTestAccess::NoCachedVerdicts(guest),
           "frozen interface decision leaked into the numeric shape cache");
     IngestTestAccess::ReceivePacket(guest, session, current, 814, {});
-    Check(ndisVerdicts.back().first == 814 && ndisVerdicts.back().second == Verdict::Drop,
+    Check(ndisVerdicts.back().first == 814 && ndisVerdicts.back().second == Verdict::Block,
           "old interface verdict was reused for the current interface");
     guest.EndDriverSession(session.End());
     host.Detach();
@@ -910,7 +910,7 @@ void TestNdisReverseTraffic() {
     filtered.direction = 0;
     guest.HandleNdis(filtered, nullptr, 0);
     Check(ndisVerdicts.size() == 1 && ndisVerdicts[0].first == filtered.id &&
-              ndisVerdicts[0].second == Native::Verdict::Drop,
+              ndisVerdicts[0].second == Native::Verdict::Block,
           "interface rule did not block the reversed incoming direction");
     filtered.id = id++;
     filtered.direction = 1;

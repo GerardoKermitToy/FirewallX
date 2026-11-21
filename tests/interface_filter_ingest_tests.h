@@ -391,8 +391,7 @@ void TestInterfaceFilterShapeCache() {
             request.interfaceIndex = index;
             const auto before = sentVerdicts.size();
             IngestTestAccess::ReceivePacket(*ingest, session, request, id, {});
-            const auto verdict = expected == RuleAction::Allow
-                ? pmkext::Verdict::PermanentAccept : pmkext::Verdict::Drop;
+            const auto verdict = ExpectedPersistentVerdict(expected);
             Check(sentVerdicts.size() == before + 1 && sentVerdicts.back() == std::pair{id, verdict},
                   "shape cache reused a verdict across different interface filters");
         };

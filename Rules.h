@@ -46,8 +46,8 @@ enum RuleCond : uint32_t {
     CondWfpFlags   = 1u << 10,     // все выбранные биты исходной маски WFP
 };
 
-// Действие правила бинарно: разрешить либо блокировать.
-enum class RuleAction : uint8_t { Allow = 0, Block = 1 };
+// Действие правила: разрешить, блокировать с уведомлением либо блокировать без уведомления.
+enum class RuleAction : uint8_t { Allow = 0, Block = 1, Drop = 2 };
 
 // Элемент списка адресов: либо конкретный адрес/подсеть, либо макро-адрес,
 // содержимое которого определяется конфигурацией сети в момент сопоставления.
@@ -158,10 +158,14 @@ struct Rule {
     // кешировать нельзя (см. RuleStore::volatileConds).
     bool hasVolatileConds() const;
 
-    // Значений всего два, поэтому щелчок по ссылке в расшифровке правила
-    // переключает их напрямую — отдельный диалог выбора был лишним шагом.
+    // Значений три: разрешить, блокировать с уведомлением и блокировать без
+    // уведомления. Щелчок по ссылке в расшифровке циклически переключает их.
     void ToggleAction() {
-        action = blocks() ? RuleAction::Allow : RuleAction::Block;
+        switch (action) {
+        case RuleAction::Allow: action = RuleAction::Block; break;
+        case RuleAction::Block: action = RuleAction::Drop; break;
+        default:               action = RuleAction::Allow; break;
+        }
     }
     void ToggleDirection() {
         dir = (dir == Dir::In) ? Dir::Out : Dir::In;
